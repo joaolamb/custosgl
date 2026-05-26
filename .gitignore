@@ -1,0 +1,20 @@
+# Local environment
+.claude/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Confidential client data — never commit real spreadsheets
+demo_data.xlsx
+*.xlsx
+*.xls
+
+# IDE
+.vscode/
+.idea/
+
+# Temp
+*.log
+.tmp/

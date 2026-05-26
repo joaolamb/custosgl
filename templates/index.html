@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GL Inteligência Contábil — Dashboard de Custos</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!--  DASHBOARD                                             -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="dashboard-screen" class="visible">
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <img src="/static/img/logo_gl.png" alt="GL Inteligência Contábil" class="nav-logo-img">
+    </div>
+
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-tab="geral">Visão Geral</button>
+      <button class="nav-tab" data-tab="rentabilidade">Rentabilidade</button>
+      <button class="nav-tab" data-tab="custos">Custos &amp; Atividades</button>
+      <button class="nav-tab" data-tab="alertas">Alertas</button>
+      <button class="nav-tab" data-tab="individual">Análise Individual</button>
+      <button class="nav-tab" data-tab="comparativo">Comparativo Mensal</button>
+    </div>
+
+    <div class="nav-actions">
+      <div id="nav-month-pills" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+      <button class="btn btn-outline btn-sm" id="add-month-btn">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+        Mês
+      </button>
+    </div>
+  </nav>
+
+  <!-- Filter Bar -->
+  <div class="filter-bar">
+    <span class="filter-label">Visualização</span>
+    <div class="view-toggle">
+      <button class="view-btn active" data-view="geral">Geral</button>
+      <button class="view-btn" data-view="empresas">Por Empresa</button>
+      <button class="view-btn" data-view="individual">Individual</button>
+    </div>
+
+    <div class="filter-client-wrap" id="filter-client-wrap">
+      <div class="search-select" id="filter-client-search" style="min-width:260px">
+        <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35" stroke-linecap="round"/></svg>
+        <input type="text" class="search-input" placeholder="Buscar cliente..." autocomplete="off">
+        <button class="search-clear hidden" type="button" aria-label="Limpar">×</button>
+        <div class="search-dropdown hidden"></div>
+      </div>
+    </div>
+
+    <div class="filter-period" id="filter-period">
+      <span class="filter-label">Período</span>
+      <select class="period-select" id="period-select">
+        <option value="all">Todos os meses</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="main-content">
+
+    <!-- ── NO DATA HINT (minimal CTA, points to + Mês modal) ── -->
+    <div id="no-data" class="no-data-wrap">
+      <p class="no-data-text">Nenhuma planilha carregada.</p>
+      <button class="btn btn-default btn-lg" id="no-data-btn">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+        Carregar planilha
+      </button>
+    </div>
+
+    <!-- ── TAB: Visão Geral ────────────────────────────── -->
+    <div id="tab-geral" class="tab-panel active">
+      <div class="section-header mb-4">
+        <div>
+          <div class="section-title">Visão Geral</div>
+          <div class="section-sub" id="geral-period-label">—</div>
+        </div>
+      </div>
+
+      <div class="cards-grid" id="geral-cards"></div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Composição da Carteira</div>
+            <div class="chart-card-sub">Clientes por resultado operacional</div>
+          </div>
+          <div class="chart-wrap" style="height:260px">
+            <canvas id="chart-composicao"></canvas>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Receita vs Custo vs Resultado</div>
+            <div class="chart-card-sub">Visão consolidada do período</div>
+          </div>
+          <div class="chart-wrap" style="height:260px">
+            <canvas id="chart-receita-custo"></canvas>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Top 10 — Maiores Resultados Positivos</div>
+            <div class="chart-card-sub">Clientes mais lucrativos</div>
+          </div>
+          <div class="chart-wrap" style="height:300px">
+            <canvas id="chart-top-pos"></canvas>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Top 10 — Maiores Prejuízos</div>
+            <div class="chart-card-sub">Clientes com maior impacto negativo</div>
+          </div>
+          <div class="chart-wrap" style="height:300px">
+            <canvas id="chart-top-neg"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAB: Rentabilidade ──────────────────────────── -->
+    <div id="tab-rentabilidade" class="tab-panel">
+      <div class="section-header mb-4">
+        <div>
+          <div class="section-title">Rentabilidade por Cliente</div>
+          <div class="section-sub">Análise de resultado, margem e composição de receita</div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card chart-full">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Ranking de Resultado — Top 20 Prejuízo</div>
+            <div class="chart-card-sub">Clientes ordenados pelo maior impacto negativo no resultado</div>
+          </div>
+          <div class="chart-wrap" style="height:340px">
+            <canvas id="chart-ranking-prejuizo"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card chart-full">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Honorário vs Extra — Top 20 por custo</div>
+            <div class="chart-card-sub">Proporção de receita fixa e variável por cliente</div>
+          </div>
+          <div class="chart-wrap" style="height:320px">
+            <canvas id="chart-hon-extra"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Top 15 Margem % (Positivos)</div>
+            <div class="chart-card-sub">Clientes com maior percentual de resultado</div>
+          </div>
+          <div class="chart-wrap" style="height:320px">
+            <canvas id="chart-margem-pct"></canvas>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Resultado Positivos vs Negativos</div>
+            <div class="chart-card-sub">Balanço financeiro da carteira</div>
+          </div>
+          <div class="chart-wrap" style="height:320px">
+            <canvas id="chart-pos-neg-balance"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAB: Custos & Atividades ────────────────────── -->
+    <div id="tab-custos" class="tab-panel">
+      <div class="section-header mb-4">
+        <div>
+          <div class="section-title">Custos &amp; Atividades</div>
+          <div class="section-sub">Ranking de custo, volume operacional e curva ABC</div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card chart-full">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Top 20 — Maior Custo Total</div>
+            <div class="chart-card-sub">Barras coloridas pelo resultado: verde = positivo, vermelho = negativo</div>
+          </div>
+          <div class="chart-wrap" style="height:340px">
+            <canvas id="chart-ranking-custo"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Top 15 — Nº de Atividades</div>
+            <div class="chart-card-sub">Quem mais consome tempo da equipe</div>
+          </div>
+          <div class="chart-wrap" style="height:340px">
+            <canvas id="chart-atividades"></canvas>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Top 15 — Custo por Atividade</div>
+            <div class="chart-card-sub">Identifica clientes complexos ou mal precificados</div>
+          </div>
+          <div class="chart-wrap" style="height:340px">
+            <canvas id="chart-custo-ativ"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card chart-full">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Concentração de Custo</div>
+            <div class="chart-card-sub">Quais clientes pesam mais no custo total da carteira</div>
+          </div>
+          <div id="concentracao-custo"></div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card chart-full">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Concentração de Resultado Positivo</div>
+            <div class="chart-card-sub">Quais clientes geram a maior parte do lucro da carteira</div>
+          </div>
+          <div id="concentracao-resultado"></div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Custo Fixo vs Operacional</div>
+            <div class="chart-card-sub">Top 15 por custo total — composição do custo</div>
+          </div>
+          <div class="chart-wrap" style="height:320px">
+            <canvas id="chart-custo-comp"></canvas>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Distribuição de Custo Médio/Atividade</div>
+            <div class="chart-card-sub">Histograma de eficiência operacional</div>
+          </div>
+          <div class="chart-wrap" style="height:320px">
+            <canvas id="chart-hist-custo-ativ"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAB: Alertas ────────────────────────────────── -->
+    <div id="tab-alertas" class="tab-panel">
+      <div class="section-header mb-4">
+        <div>
+          <div class="section-title">Alertas Automáticos</div>
+          <div class="section-sub">Identificação de clientes que requerem atenção</div>
+        </div>
+      </div>
+      <div id="alert-summary-cards" class="cards-grid" style="grid-template-columns: repeat(4,1fr); margin-bottom: 24px;"></div>
+      <div class="alert-grid" id="alert-grid"></div>
+    </div>
+
+    <!-- ── TAB: Análise Individual ─────────────────────── -->
+    <div id="tab-individual" class="tab-panel">
+      <div class="individual-header">
+        <div class="individual-selector">
+          <div class="search-select" id="individual-search" style="flex:1;max-width:440px;min-width:280px">
+            <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35" stroke-linecap="round"/></svg>
+            <input type="text" class="search-input search-input-lg" placeholder="Buscar cliente por nome ou CNPJ..." autocomplete="off">
+            <button class="search-clear hidden" type="button" aria-label="Limpar">×</button>
+            <div class="search-dropdown hidden"></div>
+          </div>
+        </div>
+        <div id="individual-status"></div>
+        <div id="individual-ranks" class="rank-badge"></div>
+      </div>
+
+      <div id="individual-content" class="hidden">
+        <div class="cards-grid" id="individual-cards"></div>
+
+        <!-- Diagnóstico escrito -->
+        <div class="diagnostic-card" id="individual-diagnostic"></div>
+
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <div class="chart-card-title">Composição Financeira</div>
+              <div class="chart-card-sub">Receita, custo, imposto e resultado do cliente</div>
+            </div>
+            <div class="chart-wrap" style="height:320px">
+              <canvas id="chart-individual-bar"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <div class="chart-card-title">Comparação com a Média</div>
+              <div class="chart-card-sub">Cliente vs média da carteira nos principais indicadores</div>
+            </div>
+            <div class="chart-wrap" style="height:320px">
+              <canvas id="chart-individual-compare"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-card" style="margin-bottom:24px">
+          <div class="chart-card-header">
+            <div class="chart-card-title">Posição na Carteira</div>
+            <div class="chart-card-sub">Cliente destacado nos rankings gerais</div>
+          </div>
+          <div class="chart-wrap" style="height:280px">
+            <canvas id="chart-individual-ranking"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div id="individual-empty" style="padding:60px 0; text-align:center; color:var(--text-muted);">
+        <div style="font-size:40px; margin-bottom:12px; opacity:.4;">🔍</div>
+        <div style="font-size:15px; font-weight:600; color:var(--text); margin-bottom:6px;">Selecione um cliente</div>
+        <div style="font-size:13px;">Escolha um cliente acima para ver a análise detalhada.</div>
+      </div>
+    </div>
+
+    <!-- ── TAB: Comparativo Mensal ─────────────────────── -->
+    <div id="tab-comparativo" class="tab-panel">
+      <div class="compare-header" id="compare-header" style="display:none">
+        <div class="compare-header-info">
+          <div class="section-title" id="compare-title">Comparativo Mensal — Carteira Inteira</div>
+          <div class="section-sub">Evolução dos indicadores ao longo dos meses carregados</div>
+        </div>
+        <div class="compare-header-filter">
+          <div class="view-toggle">
+            <button class="compare-mode-btn active" data-mode="carteira">Carteira</button>
+            <button class="compare-mode-btn" data-mode="cliente">Cliente</button>
+          </div>
+          <div class="search-select" id="compare-client-search" style="min-width:280px;display:none">
+            <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35" stroke-linecap="round"/></svg>
+            <input type="text" class="search-input" placeholder="Buscar cliente..." autocomplete="off">
+            <button class="search-clear hidden" type="button" aria-label="Limpar">×</button>
+            <div class="search-dropdown hidden"></div>
+          </div>
+        </div>
+      </div>
+      <div id="compare-content"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Add Month Modal -->
+<div class="modal-overlay" id="add-month-modal">
+  <div class="modal-box">
+    <div class="modal-title">Adicionar mês</div>
+    <div class="modal-desc">Carregue uma nova planilha para adicionar ao comparativo.</div>
+    <form id="add-month-form" autocomplete="off">
+      <div class="form-group">
+        <label class="form-label" for="add-month-input">Mês de referência</label>
+        <input class="form-input" type="month" id="add-month-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Planilha de custos</label>
+        <div class="file-drop" id="add-file-drop">
+          <input type="file" id="add-file-input" accept=".xlsx,.xls" style="display:none">
+          <div class="file-drop-text" id="add-file-text">Clique para selecionar</div>
+          <div class="file-drop-sub" id="add-file-sub">.xlsx ou .xls</div>
+        </div>
+      </div>
+      <div id="add-month-error" class="hidden" style="margin-bottom:12px; padding:10px 14px; background:var(--negative-bg); border-radius:var(--r-md); font-size:13px; color:var(--danger);"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="modal-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-default" id="modal-submit">Carregar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
