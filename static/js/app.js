@@ -1534,7 +1534,11 @@ function buildClientSummary(c) {
 // ═══════════════════════════════════════════════════════════════
 // GRUPOS
 // ═══════════════════════════════════════════════════════════════
-function normCnpj(s) { return (s || '').toString().replace(/\D/g, ''); }
+function normCnpj(s) {
+  let d = (s || '').toString().replace(/\D/g, '');
+  if (d.length >= 12 && d.length < 14) d = d.padStart(14, '0');
+  return d;
+}
 function formatCnpj(s) {
   const d = normCnpj(s);
   return d.length === 14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : (d || '—');

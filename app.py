@@ -50,8 +50,15 @@ def init_db():
 
 
 def norm_cnpj(s) -> str:
-    """Mantém apenas dígitos para fazer match consistente entre planilhas."""
-    return re.sub(r'\D', '', str(s or ''))
+    """
+    Mantém apenas dígitos. Quando vier com 12-13 dígitos é o Excel comendo o
+    zero à esquerda do CNPJ (célula numérica), então faz pad à esquerda com
+    zeros até 14. CPF (11) e CNPJ completo (14) ficam intactos.
+    """
+    d = re.sub(r'\D', '', str(s or ''))
+    if 12 <= len(d) <= 13:
+        d = d.zfill(14)
+    return d
 
 
 def save_groups(items: list[dict]) -> int:
@@ -68,20 +75,23 @@ def save_groups(items: list[dict]) -> int:
 
 
 def get_groups_map() -> dict[str, dict]:
-    """{cnpj_norm: {grupo, empresa, cidade}}"""
+    """{cnpj_norm: {grupo, empresa, cidade}} — re-normaliza pra cobrir CNPJs
+    salvos antes do fix de zero à esquerda."""
     with db() as conn:
         rows = conn.execute('SELECT cnpj_norm, grupo, empresa, cidade FROM groups').fetchall()
-        return {r['cnpj_norm']: {'grupo': r['grupo'], 'empresa': r['empresa'], 'cidade': r['cidade']} for r in rows}
+        return {norm_cnpj(r['cnpj_norm']): {'grupo': r['grupo'], 'empresa': r['empresa'], 'cidade': r['cidade']} for r in rows}
 
 
 def get_groups_grouped() -> dict:
-    """{grupo_name: {empresas:[...], count}}"""
+    """{grupo_name: [{cnpj, empresa, cidade}, ...]}"""
     with db() as conn:
         rows = conn.execute('SELECT grupo, cnpj_norm, empresa, cidade FROM groups ORDER BY grupo, empresa').fetchall()
     out = {}
     for r in rows:
         out.setdefault(r['grupo'], []).append({
-            'cnpj': r['cnpj_norm'], 'empresa': r['empresa'], 'cidade': r['cidade']
+            'cnpj': norm_cnpj(r['cnpj_norm']),  # padded a 14 dígitos
+            'empresa': r['empresa'],
+            'cidade': r['cidade'],
         })
     return out
 
