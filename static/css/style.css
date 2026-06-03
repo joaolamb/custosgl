@@ -627,6 +627,7 @@ mark { background: rgb(0 39 73 / .12); color: var(--primary); font-weight: 600; 
 .status-critico { background: var(--negative-bg); color: var(--danger); }
 .status-revisao { background: rgb(0 39 73 / .08); color: var(--primary); }
 .status-sem-hon { background: #F3F4F6; color: var(--text-muted); }
+.status-filial { background: rgb(0 39 73 / .08); color: var(--primary); }
 
 .rank-badge {
   font-size: 12px;
@@ -649,6 +650,7 @@ mark { background: rgb(0 39 73 / .12); color: var(--primary); font-weight: 600; 
 .diagnostic-card.status-atencao { border-left-color: var(--warning); background: linear-gradient(90deg, rgb(217 119 6 / .04) 0%, var(--card) 50%); }
 .diagnostic-card.status-saudavel { border-left-color: var(--positive); background: linear-gradient(90deg, rgb(5 150 105 / .04) 0%, var(--card) 50%); }
 .diagnostic-card.status-sem-hon { border-left-color: var(--text-muted); }
+.diagnostic-card.status-filial { border-left-color: var(--primary); background: linear-gradient(90deg, rgb(0 39 73 / .04) 0%, var(--card) 50%); }
 
 .diagnostic-header {
   display: flex;
@@ -667,6 +669,8 @@ mark { background: rgb(0 39 73 / .12); color: var(--primary); font-weight: 600; 
 .diagnostic-card.status-atencao .diagnostic-icon { background: var(--warning-bg); }
 .diagnostic-card.status-saudavel .diagnostic-icon { background: var(--positive-bg); }
 .diagnostic-card.status-sem-hon .diagnostic-icon { background: var(--border-light); }
+.diagnostic-card.status-filial .diagnostic-icon { background: rgb(0 39 73 / .08); }
+.diagnostic-card.status-filial .diagnostic-title { color: var(--primary); }
 
 .diagnostic-meta { flex: 1; min-width: 0; }
 .diagnostic-label {
@@ -858,6 +862,7 @@ mark { background: rgb(0 39 73 / .12); color: var(--primary); font-weight: 600; 
 .data-table td .pill.pos { background: var(--positive-bg); color: var(--positive); }
 .data-table td .pill.neg { background: var(--negative-bg); color: var(--danger); }
 .data-table td .pill.warn { background: var(--warning-bg); color: var(--warning); }
+.data-table td .pill.filial { background: rgb(0 39 73 / .08); color: var(--primary); font-family: var(--font-mono); }
 .data-table .neg-val { color: var(--danger); }
 .data-table .pos-val { color: var(--positive); }
 .data-table .muted { color: var(--text-muted); }

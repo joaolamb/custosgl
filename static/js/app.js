@@ -1123,12 +1123,13 @@ function renderAlertas(data) {
 
   const alerts = {
     deficitarios: clients.filter(c => c.resultado < 0).sort((a, b) => a.resultado - b.resultado),
-    sem_honorario: clients.filter(c => c.honorario === 0 && c.total_custo > 0).sort((a, b) => b.total_custo - a.total_custo),
+    sem_honorario: clients.filter(c => c.honorario === 0 && c.total_custo > 0 && !c.is_filial).sort((a, b) => b.total_custo - a.total_custo),
+    filiais: clients.filter(c => c.is_filial).sort((a, b) => b.total_custo - a.total_custo),
     alto_volume: clients.filter(c => c.num_atividades > avg_ativ * 2).sort((a, b) => b.num_atividades - a.num_atividades),
     alto_cpa: withAtivData.filter(c => c.total_custo / c.num_atividades > avg_cpa * 2.5).sort((a, b) => (b.total_custo / b.num_atividades) - (a.total_custo / a.num_atividades)),
     baixa_margem: clients.filter(c => c.honorario > 0 && c.resultado >= 0 && c.percentual < 0.32).sort((a, b) => a.percentual - b.percentual),
-    criticos: clients.filter(c => c.resultado < 0 && c.total_custo > avg_custo).sort((a, b) => a.resultado - b.resultado),
-    revisao: clients.filter(c => c.honorario === 0 && c.extra > 0 && c.total_custo > 0),
+    criticos: clients.filter(c => c.resultado < 0 && c.total_custo > avg_custo && !c.is_filial).sort((a, b) => a.resultado - b.resultado),
+    revisao: clients.filter(c => c.honorario === 0 && c.extra > 0 && c.total_custo > 0 && !c.is_filial),
     bons: clients.filter(c => c.resultado > 0 && c.percentual >= 0.32).sort((a, b) => b.percentual - a.percentual),
   };
 
@@ -1150,7 +1151,8 @@ function renderAlertas(data) {
   const defs = [
     { key: 'criticos', icon: '🚨', iconCls: 'alert-icon-red', title: 'Clientes Críticos', countCls: '', desc: c => `${fmt.brl(c.resultado)}`, descCls: 'neg', rule: 'Resultado negativo e custo acima da média' },
     { key: 'deficitarios', icon: '📉', iconCls: 'alert-icon-red', title: 'Deficitários', countCls: '', desc: c => `${fmt.brl(c.resultado)}`, descCls: 'neg', rule: 'Resultado menor que zero' },
-    { key: 'sem_honorario', icon: '⚠️', iconCls: 'alert-icon-yellow', title: 'Sem Honorário', countCls: 'warn', desc: c => `Custo: ${fmt.brl(c.total_custo)}`, descCls: 'neg', rule: 'Têm custo mas honorário zerado' },
+    { key: 'sem_honorario', icon: '⚠️', iconCls: 'alert-icon-yellow', title: 'Sem Honorário', countCls: 'warn', desc: c => `Custo: ${fmt.brl(c.total_custo)}`, descCls: 'neg', rule: 'Têm custo mas honorário zerado (filiais excluídas)' },
+    { key: 'filiais', icon: '🏢', iconCls: 'alert-icon-blue', title: 'Filiais', countCls: 'info', desc: c => `Matriz: ${c.matriz_nome || '—'}`, descCls: '', rule: 'CNPJ filial — honorário centralizado na matriz' },
     { key: 'baixa_margem', icon: '⬇️', iconCls: 'alert-icon-yellow', title: 'Baixa Margem', countCls: 'warn', desc: c => `${fmt.pct(c.percentual)}`, descCls: '', rule: 'Margem < 32% (mas positivo)' },
     { key: 'alto_volume', icon: '⏱️', iconCls: 'alert-icon-blue', title: 'Alto Volume Atividades', countCls: 'info', desc: c => `${c.num_atividades} atividades`, descCls: '', rule: '> 2× a média de atividades' },
     { key: 'alto_cpa', icon: '💸', iconCls: 'alert-icon-yellow', title: 'Alto Custo/Atividade', countCls: 'warn', desc: c => `R$${(c.total_custo / c.num_atividades).toFixed(0)}/ativ`, descCls: '', rule: '> 2,5× a média do custo por atividade' },
@@ -1210,6 +1212,7 @@ function renderIndividual(data) {
 }
 
 function clientStatus(c, avgCusto) {
+  if (c.is_filial) return { cls: 'status-filial', txt: 'Filial' };
   if (c.honorario === 0 && c.total_custo > 0) return { cls: 'status-sem-hon', txt: 'Sem Honorário' };
   if (c.resultado < 0 && c.total_custo > avgCusto) return { cls: 'status-critico', txt: 'Crítico' };
   if (c.resultado < 0) return { cls: 'status-critico', txt: 'Deficitário' };
@@ -1233,7 +1236,16 @@ function renderDiagnostic(c, all, ctx) {
   const actions = [];
 
   // ---- Classification & narrative ----
-  if (c.honorario === 0 && c.total_custo > 0) {
+  if (c.is_filial) {
+    status = 'filial';
+    icon = '🏢';
+    title = 'Cliente filial — honorário centralizado na matriz';
+    summary = `Este CNPJ é uma <strong>filial</strong> de <strong>${escapeHtml(c.matriz_nome || '')}</strong>${c.matriz_doc ? ` (<span class="num">${escapeHtml(c.matriz_doc)}</span>)` : ''}. O honorário é faturado integralmente no CNPJ da matriz — por isso esta linha aparece com honorário R$ 0,00 mesmo tendo <strong>${fmt.brl(c.total_custo)}</strong> em custo e <strong>${c.num_atividades}</strong> atividade${c.num_atividades !== 1 ? 's' : ''}. ${c.extra > 0 ? `Recebeu <strong>${fmt.brl(c.extra)}</strong> em valores extras.` : ''}`;
+    insights.push('Para análise de rentabilidade real, consulte a <strong>matriz</strong> ou a aba <strong>Grupos</strong> (rentabilidade consolidada)');
+    if (c.num_atividades > 0) insights.push(`Esta filial consome <span class="num">${c.num_atividades}</span> atividades e <span class="num">${fmt.brl(c.total_custo)}</span> em custo operacional`);
+    if (c.num_atividades > 0 && cpa > 0) insights.push(`Custo por atividade desta filial: <span class="num">${fmt.brl(cpa)}</span>`);
+    if (c.extra > 0) insights.push(`Recebimento extra registrado nesta filial: <span class="num">${fmt.brl(c.extra)}</span>`);
+  } else if (c.honorario === 0 && c.total_custo > 0) {
     status = 'sem-hon';
     icon = '⚠️';
     title = 'Cliente sem honorário registrado';
@@ -1762,9 +1774,11 @@ function renderGruposDetail(data, groupName) {
                   <td class="muted">${escapeHtml(r.cidade || '—')}</td>
                   <td colspan="6" class="muted">sem movimento no mês</td>
                 </tr>`;
+              const filialPill = c.is_filial ? ` <span class="pill filial" title="Honorário centralizado na matriz">filial</span>` : '';
+              const matrizPill = c.is_matriz ? ` <span class="pill filial" title="Matriz do grupo de CNPJs">matriz</span>` : '';
               return `
                 <tr>
-                  <td>${escapeHtml(c.nome)}</td>
+                  <td>${escapeHtml(c.nome)}${filialPill}${matrizPill}</td>
                   <td class="muted">${escapeHtml(formatCnpj(r.cnpj))}</td>
                   <td class="muted">${escapeHtml(r.cidade || '—')}</td>
                   <td class="num">${fmt.brl(c.honorario)}</td>

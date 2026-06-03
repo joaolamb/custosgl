@@ -99,10 +99,46 @@ def save_month(month_year: str, payload: dict) -> None:
         ''', (month_year, json.dumps(payload), len(payload.get('clients', [])), now, now))
 
 
+def enrich_with_filial(clients: list[dict]) -> list[dict]:
+    """
+    Marca filiais quando múltiplos clientes compartilham a raiz do CNPJ
+    (primeiros 8 dígitos). Como o honorário é faturado no CNPJ matriz,
+    filiais aparecem com honorário 0 mas têm custo operacional. Para cada
+    raiz com 2+ clientes:
+      - matriz = CNPJ que termina em /0001 (padrão Receita Federal),
+                 ou fallback o de maior honorário
+      - demais = filiais (recebem is_filial + matriz_nome/doc)
+    """
+    by_raiz = {}
+    for c in clients:
+        cnpj = re.sub(r'\D', '', str(c.get('doc', '')))
+        if len(cnpj) == 14:
+            by_raiz.setdefault(cnpj[:8], []).append((c, cnpj))
+
+    for group in by_raiz.values():
+        if len(group) < 2:
+            continue
+        matriz = next((c for c, cnpj in group if cnpj[8:12] == '0001'), None)
+        if matriz is None:
+            matriz = max((c for c, _ in group), key=lambda c: c.get('honorario', 0))
+        for c, _ in group:
+            if c is matriz:
+                c['is_matriz'] = True
+            else:
+                c['is_filial'] = True
+                c['matriz_nome'] = matriz['nome']
+                c['matriz_doc'] = matriz.get('doc', '')
+    return clients
+
+
 def get_month(month_year: str):
     with db() as conn:
         row = conn.execute('SELECT payload FROM months WHERE month_year = ?', (month_year,)).fetchone()
-        return json.loads(row['payload']) if row else None
+        if not row:
+            return None
+        data = json.loads(row['payload'])
+        enrich_with_filial(data.get('clients', []))
+        return data
 
 
 def list_months() -> list[str]:
@@ -114,7 +150,12 @@ def list_months() -> list[str]:
 def get_all_months() -> dict:
     with db() as conn:
         rows = conn.execute('SELECT month_year, payload FROM months ORDER BY month_year').fetchall()
-        return {r['month_year']: json.loads(r['payload']) for r in rows}
+        out = {}
+        for r in rows:
+            data = json.loads(r['payload'])
+            enrich_with_filial(data.get('clients', []))
+            out[r['month_year']] = data
+        return out
 
 
 def delete_month_db(month_year: str) -> bool:
