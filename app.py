@@ -26,14 +26,75 @@ def safe_float(val):
         return 0.0
 
 
-def parse_excel(file_bytes: bytes) -> list[dict]:
-    df = pd.read_excel(BytesIO(file_bytes), header=None, engine='openpyxl')
-    clients = []
+def _build_col_map(header_row) -> dict:
+    """Map normalized header text -> column index. Case-insensitive, accent-tolerant."""
+    import unicodedata
+    def norm(s):
+        s = unicodedata.normalize('NFD', str(s))
+        s = ''.join(c for c in s if unicodedata.category(c) != 'Mn')
+        return s.strip().lower()
 
+    out = {}
+    for i, val in enumerate(header_row):
+        if pd.isna(val):
+            continue
+        out[norm(val)] = i
+    return out
+
+
+def _find_col(col_map: dict, *aliases) -> int | None:
+    for a in aliases:
+        key = a.strip().lower()
+        if key in col_map:
+            return col_map[key]
+    return None
+
+
+def parse_excel(file_bytes: bytes) -> list[dict]:
+    """
+    Lê planilha de custos. Detecta cabeçalho dinamicamente para suportar
+    os dois layouts:
+      - 2025: Código, Cliente, Nº Atividades, Custo Fixo, Custo Operacional,
+              Total, Honorário, Extra, Imposto, Margem, Resultado, Percentual
+      - 2026+: igual mas com 'Custo Total', 'Vlr Margem', NOVA 'Margem (%)',
+               Resultado, 'Resultado (%)' (este como número, ex. 3.09 em vez
+               do antigo 0.0309)
+    """
+    df = pd.read_excel(BytesIO(file_bytes), header=None, engine='openpyxl')
+    if len(df) < 2:
+        return []
+
+    cm = _build_col_map(df.iloc[0])
+
+    c_codigo = _find_col(cm, 'codigo', 'código')
+    c_nome   = _find_col(cm, 'cliente')
+    c_ativ   = _find_col(cm, 'nº atividades', 'n atividades', 'no atividades', 'numero atividades')
+    c_cfixo  = _find_col(cm, 'custo fixo')
+    c_coper  = _find_col(cm, 'custo operacional')
+    c_ctotal = _find_col(cm, 'custo total', 'total')              # renomeado em 2026
+    c_hon    = _find_col(cm, 'honorario', 'honorário')
+    c_extra  = _find_col(cm, 'extra')
+    c_imp    = _find_col(cm, 'imposto')
+    c_margem = _find_col(cm, 'vlr margem', 'margem')              # renomeado em 2026
+    c_mpct   = _find_col(cm, 'margem (%)', 'margem %', 'margem(%)')  # novo em 2026
+    c_res    = _find_col(cm, 'resultado')
+    c_pct    = _find_col(cm, 'resultado (%)', 'resultado %', 'resultado(%)', 'percentual')
+
+    if c_nome is None or c_ativ is None or c_res is None:
+        raise ValueError('Planilha sem cabeçalho esperado (Cliente, Nº Atividades, Resultado).')
+
+    # Detecta esquema novo pela presença de "Margem (%)". No esquema novo o
+    # percentual vem como número (3.09); no antigo vem como decimal (0.0309).
+    is_new_schema = c_mpct is not None
+
+    def cell(row, idx):
+        return safe_float(row.iloc[idx]) if idx is not None else 0.0
+
+    clients = []
     for i in range(1, len(df)):
         row = df.iloc[i]
 
-        nome_raw = row.iloc[2]
+        nome_raw = row.iloc[c_nome]
         if pd.isna(nome_raw):
             continue
         nome_raw = str(nome_raw).strip()
@@ -41,39 +102,43 @@ def parse_excel(file_bytes: bytes) -> list[dict]:
             continue
 
         try:
-            num_ativ = int(float(row.iloc[3]))
+            num_ativ = int(float(row.iloc[c_ativ]))
         except Exception:
-            continue  # skip totals and empty rows
+            continue  # pula totais / linhas vazias
 
         m = re.match(r'^(.*?)\s*\(([^)]+)\)\s*$', nome_raw)
-        if m:
-            nome, doc = m.group(1).strip(), m.group(2).strip()
-        else:
-            nome, doc = nome_raw, ''
+        nome, doc = (m.group(1).strip(), m.group(2).strip()) if m else (nome_raw, '')
 
-        codigo = str(row.iloc[1]).strip()
-        if codigo.lower() in ('nan', ''):
-            codigo = ''
-        else:
-            try:
-                codigo = str(int(float(codigo)))
-            except Exception:
-                pass
+        codigo = ''
+        if c_codigo is not None:
+            raw = str(row.iloc[c_codigo]).strip()
+            if raw and raw.lower() != 'nan':
+                try:
+                    codigo = str(int(float(raw)))
+                except Exception:
+                    codigo = raw
+
+        pct_raw  = cell(row, c_pct)
+        mpct_raw = cell(row, c_mpct)
+        # Normaliza para decimal (frontend usa fmt.pct que multiplica por 100)
+        percentual = pct_raw / 100.0 if is_new_schema else pct_raw
+        margem_pct = mpct_raw / 100.0
 
         clients.append({
             'codigo': codigo,
             'nome': nome,
             'doc': doc,
             'num_atividades': num_ativ,
-            'custo_fixo': safe_float(row.iloc[4]),
-            'custo_operacional': safe_float(row.iloc[5]),
-            'total_custo': safe_float(row.iloc[6]),
-            'honorario': safe_float(row.iloc[7]),
-            'extra': safe_float(row.iloc[8]),
-            'imposto': safe_float(row.iloc[9]),
-            'margem_col': safe_float(row.iloc[10]),
-            'resultado': safe_float(row.iloc[11]),
-            'percentual': safe_float(row.iloc[12]),
+            'custo_fixo': cell(row, c_cfixo),
+            'custo_operacional': cell(row, c_coper),
+            'total_custo': cell(row, c_ctotal),
+            'honorario': cell(row, c_hon),
+            'extra': cell(row, c_extra),
+            'imposto': cell(row, c_imp),
+            'margem_col': cell(row, c_margem),     # valor R$ da comissão
+            'margem_pct': margem_pct,              # comissão / honorário (decimal)
+            'resultado': cell(row, c_res),
+            'percentual': percentual,              # resultado / honorário (decimal)
         })
 
     return clients
@@ -85,11 +150,13 @@ def compute_summary(clients: list[dict]) -> dict:
     receita = total_hon + total_extra
     total_imp = sum(c['imposto'] for c in clients)
     total_custo = sum(c['total_custo'] for c in clients)
+    total_margem = sum(c['margem_col'] for c in clients)
     total_res = sum(c['resultado'] for c in clients)
     total_ativ = sum(c['num_atividades'] for c in clients)
 
     custo_med = total_custo / total_ativ if total_ativ > 0 else 0
     margem_pct = total_res / total_hon if total_hon > 0 else 0
+    margem_comissao_pct = total_margem / total_hon if total_hon > 0 else 0
 
     pos = sum(1 for c in clients if c['resultado'] > 0)
     neg = sum(1 for c in clients if c['resultado'] < 0)
@@ -102,6 +169,8 @@ def compute_summary(clients: list[dict]) -> dict:
         'receita_bruta': round(receita, 2),
         'impostos': round(total_imp, 2),
         'custo_total': round(total_custo, 2),
+        'vlr_margem_total': round(total_margem, 2),
+        'margem_comissao_pct': round(margem_comissao_pct, 6),
         'resultado_final': round(total_res, 2),
         'margem_pct': round(margem_pct, 6),
         'num_atividades': total_ativ,
