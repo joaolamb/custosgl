@@ -377,6 +377,7 @@ function renderCurrentTab() {
     case 'custos':       renderCustos(data); break;
     case 'alertas':      renderAlertas(data); break;
     case 'individual':   renderIndividual(data); break;
+    case 'grupos':       renderGrupos(); break;
     case 'comparativo':  renderComparativo(); break;
   }
 }
@@ -1518,6 +1519,331 @@ function buildClientSummary(c) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// GRUPOS
+// ═══════════════════════════════════════════════════════════════
+function normCnpj(s) { return (s || '').toString().replace(/\D/g, ''); }
+function formatCnpj(s) {
+  const d = normCnpj(s);
+  return d.length === 14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : (d || '—');
+}
+
+async function loadGroups() {
+  try {
+    const res = await fetch('/api/groups');
+    S.groups = await res.json();
+  } catch {
+    S.groups = {};
+  }
+}
+
+function aggregateGroup(clients) {
+  return clients.reduce((a, c) => ({
+    honorario: a.honorario + (c.honorario || 0),
+    extra: a.extra + (c.extra || 0),
+    imposto: a.imposto + (c.imposto || 0),
+    total_custo: a.total_custo + (c.total_custo || 0),
+    margem_col: a.margem_col + (c.margem_col || 0),
+    resultado: a.resultado + (c.resultado || 0),
+    num_atividades: a.num_atividades + (c.num_atividades || 0),
+    count: a.count + 1,
+    positivas: a.positivas + (c.resultado > 0 ? 1 : 0),
+    negativas: a.negativas + (c.resultado < 0 ? 1 : 0),
+  }), { honorario:0, extra:0, imposto:0, total_custo:0, margem_col:0, resultado:0, num_atividades:0, count:0, positivas:0, negativas:0 });
+}
+
+function getGroupClients(data, groupName) {
+  if (!data || !S.groups || !S.groups[groupName]) return [];
+  const cnpjs = new Set(S.groups[groupName].map(e => e.cnpj));
+  return data.clients.filter(c => cnpjs.has(normCnpj(c.doc)));
+}
+
+function renderGrupos() {
+  if (!S.groups) {
+    loadGroups().then(() => renderGrupos());
+    return;
+  }
+  const data = currentData();
+  const names = Object.keys(S.groups);
+
+  // Nenhum grupo cadastrado → empty state
+  if (!names.length) {
+    show($('grupos-empty'));
+    hide($('grupos-overview'));
+    hide($('grupos-detail'));
+    return;
+  }
+  hide($('grupos-empty'));
+
+  // Popula o select (uma vez por carga de grupos)
+  const sel = $('grupos-select');
+  if (sel.options.length <= 1) {
+    names.sort().forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g;
+      opt.textContent = `${g} (${S.groups[g].length})`;
+      sel.appendChild(opt);
+    });
+  }
+
+  if (sel.value) {
+    hide($('grupos-overview'));
+    show($('grupos-detail'));
+    renderGruposDetail(data, sel.value);
+  } else {
+    hide($('grupos-detail'));
+    show($('grupos-overview'));
+    renderGruposOverview(data);
+  }
+}
+
+function renderGruposOverview(data) {
+  const container = $('grupos-overview');
+  if (!data) {
+    container.innerHTML = '<p class="grupos-empty-desc" style="text-align:center;padding:40px">Carregue um mês para ver a análise por grupo.</p>';
+    return;
+  }
+
+  const rows = Object.keys(S.groups).map(g => {
+    const cls = getGroupClients(data, g);
+    const agg = aggregateGroup(cls);
+    const pct = agg.honorario > 0 ? agg.resultado / agg.honorario : 0;
+    return { grupo: g, cadastradas: S.groups[g].length, ...agg, pct };
+  }).sort((a, b) => b.resultado - a.resultado);
+
+  const tot = rows.reduce((a, r) => ({
+    receita: a.receita + r.honorario + r.extra,
+    custo: a.custo + r.total_custo,
+    resultado: a.resultado + r.resultado,
+    empresas: a.empresas + r.count,
+  }), { receita:0, custo:0, resultado:0, empresas:0 });
+
+  const grupCount = rows.length;
+  const positivos = rows.filter(r => r.resultado > 0).length;
+  const negativos = rows.filter(r => r.resultado < 0).length;
+
+  const cards = [
+    { label: 'Grupos', value: fmt.int(grupCount), cls: 'primary', sub: `${tot.empresas} empresas com movimento` },
+    { label: 'Receita Bruta', value: fmt.brl(tot.receita), cls: 'primary', sub: 'Honorário + Extra' },
+    { label: 'Custo Total', value: fmt.brl(tot.custo), cls: '', sub: '' },
+    { label: 'Resultado', value: fmt.brl(tot.resultado), cls: tot.resultado >= 0 ? 'positive' : 'negative', sub: tot.resultado >= 0 ? '✓ Lucro' : '✗ Prejuízo' },
+    { label: 'Grupos com Lucro', value: fmt.int(positivos), cls: 'positive', sub: `${fmt.pct(positivos / (grupCount || 1))} dos grupos` },
+    { label: 'Grupos com Prejuízo', value: fmt.int(negativos), cls: 'negative', sub: `${fmt.pct(negativos / (grupCount || 1))} dos grupos` },
+  ];
+
+  container.innerHTML = `
+    <div class="cards-grid">
+      ${cards.map((c, i) => `
+        <div class="card" style="animation-delay:${i*30}ms">
+          <div class="card-label">${c.label}</div>
+          <div class="card-value ${c.cls}">${c.value}</div>
+          <div class="card-sub">${c.sub}</div>
+        </div>`).join('')}
+    </div>
+    <div class="chart-card chart-full" style="margin-top:24px">
+      <div class="chart-card-header">
+        <div class="chart-card-title">Ranking de Grupos — ${fmt.monthLabel(S.currentMonth)}</div>
+        <div class="chart-card-sub">Clique em um grupo para ver detalhes</div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Grupo</th>
+              <th class="num">Empresas</th>
+              <th class="num">Honorário</th>
+              <th class="num">Extra</th>
+              <th class="num">Custo</th>
+              <th class="num">Comissão</th>
+              <th class="num">Resultado</th>
+              <th class="num">Margem %</th>
+              <th class="num">Ativ.</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr class="clickable" data-group="${escapeHtml(r.grupo)}">
+                <td><strong>${escapeHtml(r.grupo)}</strong></td>
+                <td class="num">${r.count} <span class="muted">/ ${r.cadastradas}</span></td>
+                <td class="num">${fmt.brl(r.honorario)}</td>
+                <td class="num">${fmt.brl(r.extra)}</td>
+                <td class="num">${fmt.brl(r.total_custo)}</td>
+                <td class="num">${fmt.brl(r.margem_col)}</td>
+                <td class="num ${r.resultado >= 0 ? 'pos-val' : 'neg-val'}">${fmt.brl(r.resultado)}</td>
+                <td class="num"><span class="pill ${r.pct >= 0.32 ? 'pos' : r.pct >= 0 ? 'warn' : 'neg'}">${fmt.pct(r.pct)}</span></td>
+                <td class="num">${fmt.int(r.num_atividades)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  container.querySelectorAll('tr.clickable').forEach(tr => {
+    tr.addEventListener('click', () => {
+      $('grupos-select').value = tr.dataset.group;
+      renderGrupos();
+    });
+  });
+}
+
+function renderGruposDetail(data, groupName) {
+  const container = $('grupos-detail');
+  const empresas = S.groups[groupName] || [];
+
+  if (!data) {
+    container.innerHTML = '<p class="grupos-empty-desc" style="text-align:center;padding:40px">Carregue um mês para ver os detalhes.</p>';
+    return;
+  }
+
+  const clients = getGroupClients(data, groupName);
+  const agg = aggregateGroup(clients);
+  const receita = agg.honorario + agg.extra;
+  const pct = agg.honorario > 0 ? agg.resultado / agg.honorario : 0;
+  const cpa = agg.num_atividades > 0 ? agg.total_custo / agg.num_atividades : 0;
+  const comissaoPct = agg.honorario > 0 ? agg.margem_col / agg.honorario : 0;
+  const matched = new Set(clients.map(c => normCnpj(c.doc)));
+
+  const cards = [
+    { label: 'Empresas no Grupo', value: fmt.int(empresas.length), cls: 'primary', sub: `${clients.length} com movimento no mês` },
+    { label: 'Honorário Total', value: fmt.brl(agg.honorario), cls: 'primary', sub: '' },
+    { label: 'Extra Total', value: fmt.brl(agg.extra), cls: '', sub: '' },
+    { label: 'Receita Bruta', value: fmt.brl(receita), cls: 'primary', sub: 'Honorário + Extra' },
+    { label: 'Custo Total', value: fmt.brl(agg.total_custo), cls: '', sub: '' },
+    { label: 'Comissão', value: fmt.brl(agg.margem_col), cls: '', sub: agg.honorario > 0 ? `${fmt.pct(comissaoPct)} do honorário` : '' },
+    { label: 'Imposto', value: fmt.brl(agg.imposto), cls: '', sub: '' },
+    { label: 'Resultado Final', value: fmt.brl(agg.resultado), cls: agg.resultado >= 0 ? 'positive' : 'negative', sub: agg.resultado >= 0 ? '✓ Grupo com lucro' : '✗ Grupo com prejuízo' },
+    { label: 'Margem %', value: fmt.pct(pct), cls: pct >= 0.32 ? 'positive' : pct >= 0 ? '' : 'negative', sub: 'Resultado / Honorários · meta ≥ 32%' },
+    { label: 'Atividades', value: fmt.int(agg.num_atividades), cls: 'primary', sub: '' },
+    { label: 'Custo/Atividade', value: agg.num_atividades > 0 ? fmt.brl(cpa) : '—', cls: '', sub: '' },
+    { label: 'Positivas / Negativas', value: `${agg.positivas} / ${agg.negativas}`, cls: '', sub: 'Empresas no mês' },
+  ];
+
+  const rows = empresas.map(e => {
+    const c = clients.find(cl => normCnpj(cl.doc) === e.cnpj);
+    return { ...e, client: c };
+  }).sort((a, b) => (b.client?.resultado ?? -Infinity) - (a.client?.resultado ?? -Infinity));
+
+  container.innerHTML = `
+    <div class="cards-grid">
+      ${cards.map((c, i) => `
+        <div class="card" style="animation-delay:${i*30}ms">
+          <div class="card-label">${c.label}</div>
+          <div class="card-value ${c.cls}">${c.value}</div>
+          <div class="card-sub">${c.sub}</div>
+        </div>`).join('')}
+    </div>
+    <div class="chart-card chart-full" style="margin-top:24px">
+      <div class="chart-card-header">
+        <div class="chart-card-title">Empresas do ${escapeHtml(groupName)}</div>
+        <div class="chart-card-sub">${clients.length} de ${empresas.length} empresas com movimento em ${fmt.monthLabel(S.currentMonth)}</div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Empresa</th>
+              <th>CNPJ</th>
+              <th>Cidade</th>
+              <th class="num">Honorário</th>
+              <th class="num">Custo</th>
+              <th class="num">Comissão</th>
+              <th class="num">Resultado</th>
+              <th class="num">Margem %</th>
+              <th class="num">Ativ.</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => {
+              const c = r.client;
+              if (!c) return `
+                <tr>
+                  <td><span class="muted">${escapeHtml(r.empresa)}</span></td>
+                  <td class="muted">${escapeHtml(formatCnpj(r.cnpj))}</td>
+                  <td class="muted">${escapeHtml(r.cidade || '—')}</td>
+                  <td colspan="6" class="muted">sem movimento no mês</td>
+                </tr>`;
+              return `
+                <tr>
+                  <td>${escapeHtml(c.nome)}</td>
+                  <td class="muted">${escapeHtml(formatCnpj(r.cnpj))}</td>
+                  <td class="muted">${escapeHtml(r.cidade || '—')}</td>
+                  <td class="num">${fmt.brl(c.honorario)}</td>
+                  <td class="num">${fmt.brl(c.total_custo)}</td>
+                  <td class="num">${fmt.brl(c.margem_col)}</td>
+                  <td class="num ${c.resultado >= 0 ? 'pos-val' : 'neg-val'}">${fmt.brl(c.resultado)}</td>
+                  <td class="num"><span class="pill ${c.percentual >= 0.32 ? 'pos' : c.percentual >= 0 ? 'warn' : 'neg'}">${fmt.pct(c.percentual)}</span></td>
+                  <td class="num">${c.num_atividades}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function setupGrupos() {
+  const openModal = () => $('grupos-upload-modal').classList.add('open');
+  const closeModal = () => $('grupos-upload-modal').classList.remove('open');
+
+  $('grupos-import-btn').addEventListener('click', openModal);
+  $('grupos-empty-btn').addEventListener('click', openModal);
+  $('grupos-modal-cancel').addEventListener('click', closeModal);
+  $('grupos-upload-modal').addEventListener('click', e => {
+    if (e.target.id === 'grupos-upload-modal') closeModal();
+  });
+
+  let fileObj = null;
+  const drop = $('grupos-file-drop');
+  const input = $('grupos-file-input');
+  const setFile = f => {
+    fileObj = f;
+    $('grupos-file-text').textContent = f.name;
+    $('grupos-file-sub').textContent = (f.size / 1024).toFixed(0) + ' KB';
+    drop.classList.add('has-file');
+  };
+  drop.addEventListener('click', () => input.click());
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault();
+    drop.classList.remove('over');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  });
+  input.addEventListener('change', () => { if (input.files[0]) setFile(input.files[0]); });
+
+  $('grupos-upload-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!fileObj) return showError('grupos-upload-error', 'Selecione um arquivo.');
+    const btn = $('grupos-modal-submit');
+    btn.classList.add('btn-loading');
+    btn.disabled = true;
+    hide($('grupos-upload-error'));
+    const fd = new FormData();
+    fd.append('file', fileObj);
+    try {
+      const res = await fetch('/api/groups/upload', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok || json.error) return showError('grupos-upload-error', json.error || 'Erro');
+      closeModal();
+      fileObj = null;
+      $('grupos-file-text').textContent = 'Clique para selecionar';
+      $('grupos-file-sub').textContent = 'colunas: GRUPO - EMPRESA · CNPJ · CIDADE';
+      drop.classList.remove('has-file');
+      input.value = '';
+      S.groups = null;
+      $('grupos-select').innerHTML = '<option value="">Todos os grupos (visão geral)</option>';
+      renderGrupos();
+    } catch (err) {
+      showError('grupos-upload-error', 'Erro: ' + err.message);
+    } finally {
+      btn.classList.remove('btn-loading');
+      btn.disabled = false;
+    }
+  });
+
+  $('grupos-select').addEventListener('change', () => renderGrupos());
+}
+
 function renderComparativo() {
   const container = $('compare-content');
   const headerEl = $('compare-header');
@@ -1809,5 +2135,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupTabs();
   setupViewMode();
   setupAddMonth();
+  setupGrupos();
   loadPersistedMonths();
 });

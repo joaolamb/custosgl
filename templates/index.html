@@ -27,6 +27,7 @@
       <button class="nav-tab" data-tab="custos">Custos &amp; Atividades</button>
       <button class="nav-tab" data-tab="alertas">Alertas</button>
       <button class="nav-tab" data-tab="individual">Análise Individual</button>
+      <button class="nav-tab" data-tab="grupos">Grupos</button>
       <button class="nav-tab" data-tab="comparativo">Comparativo Mensal</button>
     </div>
 
@@ -339,6 +340,39 @@
       </div>
     </div>
 
+    <!-- ── TAB: Grupos ─────────────────────────────────── -->
+    <div id="tab-grupos" class="tab-panel">
+      <div class="grupos-header">
+        <div>
+          <div class="section-title">Análise por Grupo Empresarial</div>
+          <div class="section-sub" id="grupos-sub">Consolidação das empresas que fazem parte de cada grupo</div>
+        </div>
+        <div class="grupos-actions">
+          <select id="grupos-select" class="filter-select" style="min-width:260px">
+            <option value="">Todos os grupos (visão geral)</option>
+          </select>
+          <button class="btn btn-outline btn-sm" id="grupos-import-btn">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Importar grupos
+          </button>
+        </div>
+      </div>
+
+      <!-- Empty state when no groups are loaded -->
+      <div id="grupos-empty" class="grupos-empty hidden">
+        <div class="grupos-empty-icon">🏢</div>
+        <h3 class="grupos-empty-title">Nenhum grupo cadastrado</h3>
+        <p class="grupos-empty-desc">Importe a planilha de grupos (CNPJ → Grupo) para começar a análise consolidada.</p>
+        <button class="btn btn-default" id="grupos-empty-btn">+ Importar planilha de grupos</button>
+      </div>
+
+      <!-- All-groups overview (when no specific group selected) -->
+      <div id="grupos-overview" class="hidden"></div>
+
+      <!-- Single-group detail (when a group is selected) -->
+      <div id="grupos-detail" class="hidden"></div>
+    </div>
+
     <!-- ── TAB: Comparativo Mensal ─────────────────────── -->
     <div id="tab-comparativo" class="tab-panel">
       <div class="compare-header" id="compare-header" style="display:none">
@@ -387,6 +421,29 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="modal-cancel">Cancelar</button>
         <button type="submit" class="btn btn-default" id="modal-submit">Carregar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Groups upload modal -->
+<div class="modal-overlay" id="grupos-upload-modal">
+  <div class="modal-box">
+    <div class="modal-title">Importar planilha de grupos</div>
+    <div class="modal-desc">Vincula CNPJs a grupos empresariais. Substitui o cadastro anterior.</div>
+    <form id="grupos-upload-form" autocomplete="off">
+      <div class="form-group">
+        <label class="form-label">Planilha de grupos</label>
+        <div class="file-drop" id="grupos-file-drop">
+          <input type="file" id="grupos-file-input" accept=".xlsx,.xls" style="display:none">
+          <div class="file-drop-text" id="grupos-file-text">Clique para selecionar</div>
+          <div class="file-drop-sub" id="grupos-file-sub">colunas: GRUPO - EMPRESA · CNPJ · CIDADE</div>
+        </div>
+      </div>
+      <div id="grupos-upload-error" class="hidden" style="margin-bottom:12px; padding:10px 14px; background:var(--negative-bg); border-radius:var(--r-md); font-size:13px; color:var(--danger);"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="grupos-modal-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-default" id="grupos-modal-submit">Importar</button>
       </div>
     </form>
   </div>

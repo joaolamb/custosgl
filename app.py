@@ -37,6 +37,53 @@ def init_db():
                 updated_at   TEXT    NOT NULL
             )
         ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS groups (
+                cnpj_norm  TEXT PRIMARY KEY,
+                grupo      TEXT NOT NULL,
+                empresa    TEXT NOT NULL,
+                cidade     TEXT,
+                updated_at TEXT NOT NULL
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_groups_grupo ON groups(grupo)')
+
+
+def norm_cnpj(s) -> str:
+    """Mantém apenas dígitos para fazer match consistente entre planilhas."""
+    return re.sub(r'\D', '', str(s or ''))
+
+
+def save_groups(items: list[dict]) -> int:
+    """Substitui todos os grupos. items: [{cnpj, grupo, empresa, cidade}]"""
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    with db() as conn:
+        conn.execute('DELETE FROM groups')
+        conn.executemany(
+            'INSERT OR REPLACE INTO groups(cnpj_norm, grupo, empresa, cidade, updated_at) VALUES (?,?,?,?,?)',
+            [(norm_cnpj(it['cnpj']), it['grupo'], it['empresa'], it.get('cidade', ''), now)
+             for it in items if norm_cnpj(it['cnpj'])]
+        )
+        return conn.total_changes
+
+
+def get_groups_map() -> dict[str, dict]:
+    """{cnpj_norm: {grupo, empresa, cidade}}"""
+    with db() as conn:
+        rows = conn.execute('SELECT cnpj_norm, grupo, empresa, cidade FROM groups').fetchall()
+        return {r['cnpj_norm']: {'grupo': r['grupo'], 'empresa': r['empresa'], 'cidade': r['cidade']} for r in rows}
+
+
+def get_groups_grouped() -> dict:
+    """{grupo_name: {empresas:[...], count}}"""
+    with db() as conn:
+        rows = conn.execute('SELECT grupo, cnpj_norm, empresa, cidade FROM groups ORDER BY grupo, empresa').fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r['grupo'], []).append({
+            'cnpj': r['cnpj_norm'], 'empresa': r['empresa'], 'cidade': r['cidade']
+        })
+    return out
 
 
 def save_month(month_year: str, payload: dict) -> None:
@@ -241,6 +288,43 @@ def compute_summary(clients: list[dict]) -> dict:
     }
 
 
+def parse_groups_xlsx(file_bytes: bytes) -> list[dict]:
+    """
+    Lê GRUPOS.xlsx com cabeçalho: 'GRUPO - EMPRESA' | 'CNPJ' | 'CIDADE'.
+    Quebra o nome em (grupo, empresa) usando o primeiro separador ' - ' (ou '- ').
+    """
+    df = pd.read_excel(BytesIO(file_bytes), header=0, engine='openpyxl')
+    df.columns = [str(c).strip().upper() for c in df.columns]
+
+    col_combo = next((c for c in df.columns if 'GRUPO' in c and 'EMPRESA' in c), df.columns[0])
+    col_cnpj  = next((c for c in df.columns if 'CNPJ' in c), df.columns[1] if len(df.columns) > 1 else None)
+    col_cidade = next((c for c in df.columns if 'CIDADE' in c), df.columns[2] if len(df.columns) > 2 else None)
+
+    out = []
+    for _, row in df.iterrows():
+        raw = row.get(col_combo)
+        if pd.isna(raw):
+            continue
+        s = re.sub(r'\s+', ' ', str(raw)).strip()
+        if ' - ' in s:
+            grupo, empresa = s.split(' - ', 1)
+        elif '- ' in s:
+            grupo, empresa = s.split('- ', 1)
+        else:
+            continue
+        cnpj = '' if col_cnpj is None or pd.isna(row[col_cnpj]) else str(row[col_cnpj]).strip()
+        cidade = '' if col_cidade is None or pd.isna(row[col_cidade]) else str(row[col_cidade]).strip()
+        if not norm_cnpj(cnpj):
+            continue
+        out.append({
+            'grupo': grupo.strip(),
+            'empresa': empresa.strip(),
+            'cnpj': cnpj,
+            'cidade': cidade,
+        })
+    return out
+
+
 DEMO_FILE = os.path.join(os.path.dirname(__file__), 'demo_data.xlsx')
 
 
@@ -312,6 +396,47 @@ def get_data(month_year):
 @app.route('/api/all')
 def get_all():
     return jsonify(get_all_months())
+
+
+@app.route('/api/groups/upload', methods=['POST'])
+def upload_groups():
+    if 'file' not in request.files:
+        return jsonify({'error': 'Arquivo não encontrado'}), 400
+    try:
+        items = parse_groups_xlsx(request.files['file'].read())
+        if not items:
+            return jsonify({'error': 'Nenhum grupo encontrado na planilha'}), 400
+        n = save_groups(items)
+        grupos = sorted({it['grupo'] for it in items})
+        return jsonify({'success': True, 'count': len(items), 'grupos': len(grupos), 'changes': n})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'error': f'Erro ao processar grupos: {str(e)}'}), 500
+
+
+@app.route('/api/groups')
+def list_groups():
+    return jsonify(get_groups_grouped())
+
+
+@app.route('/api/groups/<path:month_year>')
+def group_analysis(month_year):
+    """Retorna clientes do mês enriquecidos com 'grupo'. Frontend agrega."""
+    data = get_month(month_year)
+    if data is None:
+        return jsonify({'error': 'Mês não encontrado'}), 404
+    gmap = get_groups_map()
+    enriched = []
+    for c in data.get('clients', []):
+        cn = norm_cnpj(c.get('doc'))
+        g = gmap.get(cn)
+        if g:
+            enriched.append({**c, 'grupo': g['grupo'], 'grupo_cidade': g.get('cidade', '')})
+    return jsonify({
+        'month_year': month_year,
+        'clients_in_groups': enriched,
+        'unmatched_cnpjs': [cn for cn in gmap if not any(norm_cnpj(c.get('doc')) == cn for c in data.get('clients', []))][:20],
+    })
 
 
 @app.route('/api/month/<path:month_year>', methods=['DELETE'])
