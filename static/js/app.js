@@ -1787,10 +1787,27 @@ function truncate(str, len) {
 // ═══════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════
+async function loadPersistedMonths() {
+  try {
+    const res = await fetch('/api/all');
+    const all = await res.json();
+    const keys = Object.keys(all).sort();
+    if (!keys.length) {
+      showEmptyState();
+      return;
+    }
+    S.months = all;
+    showDashboard(keys[keys.length - 1]);  // open on most recent
+  } catch (err) {
+    console.error('Falha ao carregar meses persistidos:', err);
+    showEmptyState();
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   setupNoDataCTA();
   setupTabs();
   setupViewMode();
   setupAddMonth();
-  showEmptyState();
+  loadPersistedMonths();
 });

@@ -11,6 +11,12 @@ demo_data.xlsx
 *.xlsx
 *.xls
 
+# SQLite database (persistent storage of months)
+data.db
+data.db-journal
+data.db-wal
+data.db-shm
+
 # IDE
 .vscode/
 .idea/

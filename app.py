@@ -1,21 +1,79 @@
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from io import BytesIO
+from contextlib import contextmanager
+from datetime import datetime
+import sqlite3
+import json
 import re
-import uuid
 import math
 import os
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'custos-dashboard-secret-2025')
 
-DATA_STORE: dict = {}
+DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data.db'))
 
 
-def get_sid():
-    if 'sid' not in session:
-        session['sid'] = str(uuid.uuid4())
-    return session['sid']
+@contextmanager
+def db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def init_db():
+    with db() as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS months (
+                month_year   TEXT PRIMARY KEY,
+                payload      TEXT    NOT NULL,
+                client_count INTEGER NOT NULL,
+                created_at   TEXT    NOT NULL,
+                updated_at   TEXT    NOT NULL
+            )
+        ''')
+
+
+def save_month(month_year: str, payload: dict) -> None:
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    with db() as conn:
+        conn.execute('''
+            INSERT INTO months (month_year, payload, client_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(month_year) DO UPDATE SET
+                payload      = excluded.payload,
+                client_count = excluded.client_count,
+                updated_at   = excluded.updated_at
+        ''', (month_year, json.dumps(payload), len(payload.get('clients', [])), now, now))
+
+
+def get_month(month_year: str):
+    with db() as conn:
+        row = conn.execute('SELECT payload FROM months WHERE month_year = ?', (month_year,)).fetchone()
+        return json.loads(row['payload']) if row else None
+
+
+def list_months() -> list[str]:
+    with db() as conn:
+        rows = conn.execute('SELECT month_year FROM months ORDER BY month_year').fetchall()
+        return [r['month_year'] for r in rows]
+
+
+def get_all_months() -> dict:
+    with db() as conn:
+        rows = conn.execute('SELECT month_year, payload FROM months ORDER BY month_year').fetchall()
+        return {r['month_year']: json.loads(r['payload']) for r in rows}
+
+
+def delete_month_db(month_year: str) -> bool:
+    with db() as conn:
+        cur = conn.execute('DELETE FROM months WHERE month_year = ?', (month_year,))
+        return cur.rowcount > 0
 
 
 def safe_float(val):
@@ -196,21 +254,16 @@ def demo():
     """Pre-load demo data from local demo_data.xlsx if it exists."""
     if not os.path.exists(DEMO_FILE):
         return jsonify({'error': 'Demo file not found'}), 404
-    sid = get_sid()
     with open(DEMO_FILE, 'rb') as f:
         file_bytes = f.read()
     clients = parse_excel(file_bytes)
     summary = compute_summary(clients)
-    if sid not in DATA_STORE:
-        DATA_STORE[sid] = {}
-    DATA_STORE[sid]['2025-01'] = {'month_year': '2025-01', 'clients': clients, 'summary': summary}
+    save_month('2025-01', {'month_year': '2025-01', 'clients': clients, 'summary': summary})
     return jsonify({'success': True, 'client_count': len(clients)})
 
 
 @app.route('/api/upload', methods=['POST'])
 def upload():
-    sid = get_sid()
-
     if 'file' not in request.files:
         return jsonify({'error': 'Arquivo não encontrado'}), 400
 
@@ -228,15 +281,8 @@ def upload():
             return jsonify({'error': 'Nenhum cliente encontrado na planilha'}), 400
 
         summary = compute_summary(clients)
-
-        if sid not in DATA_STORE:
-            DATA_STORE[sid] = {}
-
-        DATA_STORE[sid][month_year] = {
-            'month_year': month_year,
-            'clients': clients,
-            'summary': summary,
-        }
+        payload = {'month_year': month_year, 'clients': clients, 'summary': summary}
+        save_month(month_year, payload)
 
         return jsonify({
             'success': True,
@@ -252,26 +298,32 @@ def upload():
 
 @app.route('/api/months')
 def get_months():
-    sid = get_sid()
-    if sid not in DATA_STORE:
-        return jsonify([])
-    return jsonify(sorted(DATA_STORE[sid].keys()))
+    return jsonify(list_months())
 
 
 @app.route('/api/data/<path:month_year>')
 def get_data(month_year):
-    sid = get_sid()
-    if sid not in DATA_STORE or month_year not in DATA_STORE[sid]:
+    data = get_month(month_year)
+    if data is None:
         return jsonify({'error': 'Dados não encontrados'}), 404
-    return jsonify(DATA_STORE[sid][month_year])
+    return jsonify(data)
 
 
 @app.route('/api/all')
 def get_all():
-    sid = get_sid()
-    if sid not in DATA_STORE:
-        return jsonify({})
-    return jsonify(DATA_STORE[sid])
+    return jsonify(get_all_months())
+
+
+@app.route('/api/month/<path:month_year>', methods=['DELETE'])
+def remove_month(month_year):
+    ok = delete_month_db(month_year)
+    if not ok:
+        return jsonify({'error': 'Mês não encontrado'}), 404
+    return jsonify({'success': True, 'month_year': month_year})
+
+
+# Initialize DB on import (works under WSGI on PythonAnywhere too)
+init_db()
 
 
 if __name__ == '__main__':
