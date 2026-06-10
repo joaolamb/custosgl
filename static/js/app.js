@@ -1749,9 +1749,16 @@ function renderGruposDetail(data, groupName) {
         </div>`).join('')}
     </div>
     <div class="chart-card chart-full" style="margin-top:24px">
-      <div class="chart-card-header">
-        <div class="chart-card-title">Empresas do ${escapeHtml(groupName)}</div>
-        <div class="chart-card-sub">${clients.length} de ${empresas.length} empresas com movimento em ${fmt.monthLabel(S.currentMonth)}</div>
+      <div class="chart-card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+        <div>
+          <div class="chart-card-title">Empresas do ${escapeHtml(groupName)}</div>
+          <div class="chart-card-sub">${clients.length} de ${empresas.length} empresas com movimento em ${fmt.monthLabel(S.currentMonth)}</div>
+        </div>
+        <div class="grupo-detail-actions">
+          <button class="btn btn-default btn-sm" id="grupo-action-add-empresa" data-grupo="${escapeHtml(groupName)}">+ Adicionar empresa</button>
+          <button class="btn btn-outline btn-sm" id="grupo-action-rename" data-grupo="${escapeHtml(groupName)}">Renomear</button>
+          <button class="btn btn-danger btn-sm" id="grupo-action-delete" data-grupo="${escapeHtml(groupName)}">Excluir grupo</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table class="data-table">
@@ -1766,17 +1773,20 @@ function renderGruposDetail(data, groupName) {
               <th class="num">Resultado</th>
               <th class="num">Margem %</th>
               <th class="num">Ativ.</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             ${rows.map(r => {
               const c = r.client;
+              const removeBtn = `<button class="btn-icon-remove grupo-empresa-remove" data-cnpj="${escapeHtml(r.cnpj)}" data-nome="${escapeHtml(r.empresa)}" title="Remover empresa do grupo">✕</button>`;
               if (!c) return `
                 <tr>
                   <td><span class="muted">${escapeHtml(r.empresa)}</span></td>
                   <td class="muted">${escapeHtml(formatCnpj(r.cnpj))}</td>
                   <td class="muted">${escapeHtml(r.cidade || '—')}</td>
                   <td colspan="6" class="muted">sem movimento no mês</td>
+                  <td>${removeBtn}</td>
                 </tr>`;
               const filialPill = c.is_filial ? ` <span class="pill filial" title="Honorário centralizado na matriz">filial</span>` : '';
               const matrizPill = c.is_matriz ? ` <span class="pill filial" title="Matriz do grupo de CNPJs">matriz</span>` : '';
@@ -1791,6 +1801,7 @@ function renderGruposDetail(data, groupName) {
                   <td class="num ${c.resultado >= 0 ? 'pos-val' : 'neg-val'}">${fmt.brl(c.resultado)}</td>
                   <td class="num"><span class="pill ${c.percentual >= 0.32 ? 'pos' : c.percentual >= 0 ? 'warn' : 'neg'}">${fmt.pct(c.percentual)}</span></td>
                   <td class="num">${c.num_atividades}</td>
+                  <td>${removeBtn}</td>
                 </tr>`;
             }).join('')}
           </tbody>
@@ -1860,6 +1871,167 @@ function setupGrupos() {
   });
 
   $('grupos-select').addEventListener('change', () => renderGrupos());
+}
+
+// ── CRUD de grupos (criar/renomear/excluir grupo + add/remover empresa) ──
+async function reloadGroupsAndRender(selectGroup = null) {
+  S.groups = null;
+  $('grupos-select').innerHTML = '<option value="">Todos os grupos (visão geral)</option>';
+  await loadGroups();
+  // Re-popula select com o novo conjunto
+  Object.keys(S.groups).sort().forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g;
+    opt.textContent = `${g} (${S.groups[g].length})`;
+    $('grupos-select').appendChild(opt);
+  });
+  if (selectGroup && S.groups[selectGroup]) $('grupos-select').value = selectGroup;
+  renderGrupos();
+}
+
+function setupGroupCRUD() {
+  // ─── Novo Grupo ─────────────────────────────────────────
+  const newModal = $('grupo-new-modal');
+  const openNew = () => { $('grupo-new-name').value = ''; hide($('grupo-new-error')); newModal.classList.add('open'); setTimeout(() => $('grupo-new-name').focus(), 50); };
+  const closeNew = () => newModal.classList.remove('open');
+  $('grupos-new-btn').addEventListener('click', openNew);
+  $('grupo-new-cancel').addEventListener('click', closeNew);
+  newModal.addEventListener('click', e => { if (e.target.id === 'grupo-new-modal') closeNew(); });
+  $('grupo-new-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const nome = $('grupo-new-name').value.trim();
+    if (!nome) return showError('grupo-new-error', 'Informe o nome do grupo');
+    if (S.groups && S.groups[nome]) return showError('grupo-new-error', 'Já existe um grupo com esse nome');
+    closeNew();
+    // O grupo "existe" só quando tem ao menos uma empresa → abrimos o modal de adicionar com esse grupo
+    openAddEmpresa(nome, true);
+  });
+
+  // ─── Adicionar Empresa ──────────────────────────────────
+  let pendingGrupo = null;       // grupo alvo
+  let pendingIsNew = false;      // se é um grupo recém criado
+  const addModal = $('empresa-add-modal');
+
+  function openAddEmpresa(grupo, isNew = false) {
+    pendingGrupo = grupo;
+    pendingIsNew = isNew;
+    $('empresa-add-title').textContent = `Adicionar empresa ao ${grupo}`;
+    // reset
+    document.querySelectorAll('.grupo-add-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === 'search'));
+    show($('empresa-add-search-pane'));
+    hide($('empresa-add-manual-pane'));
+    SS.empresaAdd && SS.empresaAdd.clear();
+    $('empresa-add-cnpj').value = '';
+    $('empresa-add-nome').value = '';
+    $('empresa-add-cidade').value = '';
+    hide($('empresa-add-error'));
+    // Popula busca com clientes do mês atual
+    const data = currentData();
+    if (data && SS.empresaAdd) SS.empresaAdd.setItems(data.clients);
+    addModal.classList.add('open');
+  }
+  const closeAdd = () => addModal.classList.remove('open');
+
+  // Cria o SearchSelect uma vez
+  let selectedClientIdx = null;
+  SS.empresaAdd = createSearchSelect('empresa-add-search', (idx) => { selectedClientIdx = idx; });
+
+  // Tabs do modal
+  document.querySelectorAll('.grupo-add-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const mode = tab.dataset.mode;
+      document.querySelectorAll('.grupo-add-tab').forEach(t => t.classList.toggle('active', t === tab));
+      if (mode === 'search') { show($('empresa-add-search-pane')); hide($('empresa-add-manual-pane')); }
+      else { hide($('empresa-add-search-pane')); show($('empresa-add-manual-pane')); }
+    });
+  });
+
+  $('empresa-add-cancel').addEventListener('click', closeAdd);
+  addModal.addEventListener('click', e => { if (e.target.id === 'empresa-add-modal') closeAdd(); });
+
+  $('empresa-add-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    let cnpj = '', empresa = '', cidade = '';
+    const isSearchMode = document.querySelector('.grupo-add-tab.active')?.dataset.mode === 'search';
+
+    if (isSearchMode) {
+      if (selectedClientIdx === null) return showError('empresa-add-error', 'Selecione um cliente da lista');
+      const c = currentData().clients[selectedClientIdx];
+      cnpj = c.doc;
+      empresa = c.nome;
+    } else {
+      cnpj = $('empresa-add-cnpj').value.trim();
+      empresa = $('empresa-add-nome').value.trim();
+      cidade = $('empresa-add-cidade').value.trim();
+      if (!cnpj || !empresa) return showError('empresa-add-error', 'Informe CNPJ e nome da empresa');
+    }
+    const cnpjNorm = normCnpj(cnpj);
+    if (cnpjNorm.length !== 14) return showError('empresa-add-error', 'CNPJ inválido (precisa de 14 dígitos)');
+
+    try {
+      const res = await fetch('/api/groups/empresa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnpj: cnpjNorm, grupo: pendingGrupo, empresa, cidade }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) return showError('empresa-add-error', json.error || 'Erro ao salvar');
+      closeAdd();
+      await reloadGroupsAndRender(pendingGrupo);
+    } catch (err) {
+      showError('empresa-add-error', 'Erro: ' + err.message);
+    }
+  });
+
+  // ─── Ações inline na tabela do detalhe (rename/delete/add/remove) ──
+  // Event delegation — botões são re-renderizados a cada renderGruposDetail
+  document.addEventListener('click', async e => {
+    // Adicionar empresa (botão no header do card)
+    if (e.target.closest('#grupo-action-add-empresa')) {
+      const btn = e.target.closest('#grupo-action-add-empresa');
+      openAddEmpresa(btn.dataset.grupo);
+      return;
+    }
+    // Renomear grupo
+    if (e.target.closest('#grupo-action-rename')) {
+      const oldName = e.target.closest('#grupo-action-rename').dataset.grupo;
+      const newName = prompt(`Novo nome para "${oldName}":`, oldName);
+      if (!newName || newName.trim() === oldName) return;
+      const res = await fetch('/api/groups/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_name: oldName, new_name: newName.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) return alert(json.error || 'Erro ao renomear');
+      await reloadGroupsAndRender(newName.trim());
+      return;
+    }
+    // Excluir grupo inteiro
+    if (e.target.closest('#grupo-action-delete')) {
+      const name = e.target.closest('#grupo-action-delete').dataset.grupo;
+      if (!confirm(`Excluir o grupo "${name}" e todas as empresas vinculadas?\n\nIsso não apaga dados de custos — só remove o vínculo de grupo.`)) return;
+      const res = await fetch(`/api/groups/by_name/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok || json.error) return alert(json.error || 'Erro ao excluir');
+      $('grupos-select').value = '';
+      await reloadGroupsAndRender();
+      return;
+    }
+    // Remover uma empresa do grupo
+    const removeBtn = e.target.closest('.grupo-empresa-remove');
+    if (removeBtn) {
+      const cnpj = removeBtn.dataset.cnpj;
+      const nome = removeBtn.dataset.nome;
+      if (!confirm(`Remover "${nome}" deste grupo?`)) return;
+      const res = await fetch(`/api/groups/empresa/${encodeURIComponent(cnpj)}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok || json.error) return alert(json.error || 'Erro ao remover');
+      const currentGroup = $('grupos-select').value;
+      await reloadGroupsAndRender(currentGroup || null);
+      return;
+    }
+  });
 }
 
 function renderComparativo() {
@@ -2154,5 +2326,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupViewMode();
   setupAddMonth();
   setupGrupos();
+  setupGroupCRUD();
   loadPersistedMonths();
 });

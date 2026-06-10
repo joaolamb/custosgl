@@ -351,9 +351,13 @@
           <select id="grupos-select" class="filter-select" style="min-width:260px">
             <option value="">Todos os grupos (visão geral)</option>
           </select>
+          <button class="btn btn-outline btn-sm" id="grupos-new-btn">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+            Novo grupo
+          </button>
           <button class="btn btn-outline btn-sm" id="grupos-import-btn">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Importar grupos
+            Importar planilha
           </button>
         </div>
       </div>
@@ -421,6 +425,76 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="modal-cancel">Cancelar</button>
         <button type="submit" class="btn btn-default" id="modal-submit">Carregar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- New group modal -->
+<div class="modal-overlay" id="grupo-new-modal">
+  <div class="modal-box">
+    <div class="modal-title">Criar novo grupo</div>
+    <div class="modal-desc">O grupo começa vazio. Você adiciona empresas em seguida.</div>
+    <form id="grupo-new-form" autocomplete="off">
+      <div class="form-group">
+        <label class="form-label" for="grupo-new-name">Nome do grupo</label>
+        <input class="form-input" type="text" id="grupo-new-name" placeholder="Ex.: GRUPO ALPHA" required>
+      </div>
+      <div id="grupo-new-error" class="hidden" style="margin-bottom:12px; padding:10px 14px; background:var(--negative-bg); border-radius:var(--r-md); font-size:13px; color:var(--danger);"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="grupo-new-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-default">Criar grupo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add empresa to group modal -->
+<div class="modal-overlay" id="empresa-add-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="empresa-add-title">Adicionar empresa ao grupo</div>
+    <div class="modal-desc">Busque um cliente que já está no sistema ou cadastre um CNPJ novo.</div>
+
+    <div class="grupo-add-tabs">
+      <button type="button" class="grupo-add-tab active" data-mode="search">Buscar nos clientes</button>
+      <button type="button" class="grupo-add-tab" data-mode="manual">Cadastrar novo CNPJ</button>
+    </div>
+
+    <form id="empresa-add-form" autocomplete="off">
+      <!-- Search mode -->
+      <div id="empresa-add-search-pane">
+        <div class="form-group">
+          <label class="form-label">Cliente</label>
+          <div class="search-select" id="empresa-add-search">
+            <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35" stroke-linecap="round"/></svg>
+            <input type="text" class="search-input" placeholder="Buscar por nome ou CNPJ..." autocomplete="off">
+            <button class="search-clear hidden" type="button" aria-label="Limpar">×</button>
+            <div class="search-dropdown hidden"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Manual mode -->
+      <div id="empresa-add-manual-pane" class="hidden">
+        <div class="form-group">
+          <label class="form-label" for="empresa-add-cnpj">CNPJ</label>
+          <input class="form-input" type="text" id="empresa-add-cnpj" placeholder="00.000.000/0000-00">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="empresa-add-nome">Nome da empresa</label>
+          <input class="form-input" type="text" id="empresa-add-nome" placeholder="Razão social">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="empresa-add-cidade">Cidade (opcional)</label>
+          <input class="form-input" type="text" id="empresa-add-cidade" placeholder="Ex.: Curitiba/PR">
+        </div>
+      </div>
+
+      <div id="empresa-add-error" class="hidden" style="margin-bottom:12px; padding:10px 14px; background:var(--negative-bg); border-radius:var(--r-md); font-size:13px; color:var(--danger);"></div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="empresa-add-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-default">Adicionar</button>
       </div>
     </form>
   </div>

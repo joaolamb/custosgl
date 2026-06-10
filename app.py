@@ -470,6 +470,71 @@ def list_groups():
     return jsonify(get_groups_grouped())
 
 
+@app.route('/api/groups/empresa', methods=['POST'])
+def upsert_empresa_in_group():
+    """Cria ou atualiza uma empresa em um grupo. Body: {cnpj, grupo, empresa, cidade?}"""
+    body = request.get_json(silent=True) or {}
+    cnpj = norm_cnpj(body.get('cnpj', ''))
+    grupo = (body.get('grupo') or '').strip()
+    empresa = (body.get('empresa') or '').strip()
+    cidade = (body.get('cidade') or '').strip()
+    if len(cnpj) != 14:
+        return jsonify({'error': 'CNPJ inválido (precisa de 14 dígitos)'}), 400
+    if not grupo or not empresa:
+        return jsonify({'error': 'grupo e empresa são obrigatórios'}), 400
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    with db() as conn:
+        conn.execute('''
+            INSERT INTO groups (cnpj_norm, grupo, empresa, cidade, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(cnpj_norm) DO UPDATE SET
+                grupo = excluded.grupo,
+                empresa = excluded.empresa,
+                cidade = excluded.cidade,
+                updated_at = excluded.updated_at
+        ''', (cnpj, grupo, empresa, cidade, now))
+    return jsonify({'success': True, 'cnpj': cnpj, 'grupo': grupo, 'empresa': empresa})
+
+
+@app.route('/api/groups/empresa/<cnpj>', methods=['DELETE'])
+def remove_empresa_from_group(cnpj):
+    cn = norm_cnpj(cnpj)
+    with db() as conn:
+        cur = conn.execute('DELETE FROM groups WHERE cnpj_norm = ?', (cn,))
+        if cur.rowcount == 0:
+            return jsonify({'error': 'CNPJ não encontrado em nenhum grupo'}), 404
+    return jsonify({'success': True, 'cnpj': cn})
+
+
+@app.route('/api/groups/rename', methods=['POST'])
+def rename_group():
+    """Renomeia um grupo (atualiza todas as empresas). Body: {old_name, new_name}"""
+    body = request.get_json(silent=True) or {}
+    old_name = (body.get('old_name') or '').strip()
+    new_name = (body.get('new_name') or '').strip()
+    if not old_name or not new_name:
+        return jsonify({'error': 'old_name e new_name são obrigatórios'}), 400
+    if old_name == new_name:
+        return jsonify({'success': True, 'changes': 0})
+    now = datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+    with db() as conn:
+        cur = conn.execute('UPDATE groups SET grupo = ?, updated_at = ? WHERE grupo = ?',
+                           (new_name, now, old_name))
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Grupo não encontrado'}), 404
+    return jsonify({'success': True, 'changes': cur.rowcount})
+
+
+@app.route('/api/groups/by_name/<path:name>', methods=['DELETE'])
+def delete_group_by_name(name):
+    """Remove um grupo inteiro (e todas suas empresas vinculadas)."""
+    with db() as conn:
+        cur = conn.execute('DELETE FROM groups WHERE grupo = ?', (name,))
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Grupo não encontrado'}), 404
+    return jsonify({'success': True, 'removed': cur.rowcount})
+
+
 @app.route('/api/groups/<path:month_year>')
 def group_analysis(month_year):
     """Retorna clientes do mês enriquecidos com 'grupo'. Frontend agrega."""
