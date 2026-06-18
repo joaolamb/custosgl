@@ -2327,12 +2327,45 @@ function setupCompareHeader() {
   });
   SS.compare.setItems(getUnifiedClientList());
 
-  // Janela (últimos N meses)
-  const winSel = $('compare-window');
-  winSel.value = S.compareWindow || 'all';
-  winSel.addEventListener('change', () => {
-    S.compareWindow = winSel.value;
+  // Janela (últimos N meses) — input numérico livre + botão "Todos"
+  const winInput = $('compare-window-n');
+  const winAllBtn = $('compare-window-all');
+  const winSuffix = $('compare-window-suffix');
+
+  const syncWindowUI = () => {
+    const total = Object.keys(S.months).length;
+    winInput.max = total;
+    if (S.compareWindow === 'all') {
+      winInput.value = total;
+      winInput.classList.add('window-all-mode');
+      winSuffix.textContent = `meses (todos)`;
+      winAllBtn.classList.add('btn-default');
+      winAllBtn.classList.remove('btn-outline');
+    } else {
+      const n = parseInt(S.compareWindow) || 3;
+      winInput.value = Math.min(n, total);
+      winInput.classList.remove('window-all-mode');
+      winSuffix.textContent = winInput.value === '1' ? 'mês' : 'meses';
+      winAllBtn.classList.remove('btn-default');
+      winAllBtn.classList.add('btn-outline');
+    }
+  };
+  syncWindowUI();
+
+  winInput.addEventListener('input', () => {
+    const total = Object.keys(S.months).length;
+    let v = parseInt(winInput.value) || 1;
+    if (v < 1) v = 1;
+    if (v > total) v = total;
+    S.compareWindow = v >= total ? 'all' : String(v);
     renderComparativo();
+    syncWindowUI();
+  });
+
+  winAllBtn.addEventListener('click', () => {
+    S.compareWindow = 'all';
+    renderComparativo();
+    syncWindowUI();
   });
 }
 
