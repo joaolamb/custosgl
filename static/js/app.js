@@ -494,68 +494,89 @@ function averageSummaries(summaries) {
   };
 }
 
-function setupGeralWindow() {
-  if ($('geral-window-filter').dataset.wired === '1') return;
-  $('geral-window-filter').dataset.wired = '1';
-  const winInput = $('geral-window-n');
-  const winAllBtn = $('geral-window-all');
-  winInput.addEventListener('input', () => {
+// ── Period Bar — controlador genérico (Visão Geral & Comparativo Mensal) ──
+function setupPeriodBar(barId, stateKey, onChange) {
+  const bar = $(barId);
+  if (!bar || bar.dataset.wired === '1') return;
+  bar.dataset.wired = '1';
+
+  const inp = bar.querySelector('.window-input');
+  const pills = bar.querySelectorAll('.period-quick-btn');
+
+  inp.addEventListener('input', () => {
     const total = Object.keys(S.months).length;
-    let v = parseInt(winInput.value) || 1;
+    let v = parseInt(inp.value) || 1;
     if (v < 1) v = 1;
     if (v > total) v = total;
-    S.geralWindow = v >= total && total > 1 ? 'all' : v;
-    renderGeral(currentData());
+    S[stateKey] = v >= total && total > 1 ? 'all' : v;
+    onChange();
   });
-  winAllBtn.addEventListener('click', () => {
-    S.geralWindow = 'all';
-    renderGeral(currentData());
-  });
+
+  pills.forEach(b => b.addEventListener('click', () => {
+    const n = b.dataset.n;
+    const total = Object.keys(S.months).length;
+    if (n === 'all') S[stateKey] = 'all';
+    else {
+      const v = parseInt(n);
+      S[stateKey] = (total > 0 && v >= total) ? 'all' : v;
+    }
+    onChange();
+  }));
 }
 
-function syncGeralWindowUI() {
+function syncPeriodBar(barId, stateKey, rangeText, suffixOpts) {
+  const bar = $(barId);
+  if (!bar) return;
   const total = Object.keys(S.months).length;
-  const filter = $('geral-window-filter');
-  filter.style.display = total >= 2 ? '' : 'none';
+  bar.style.display = total >= 2 ? '' : 'none';
   if (total < 2) return;
-  const winInput = $('geral-window-n');
-  const winAllBtn = $('geral-window-all');
-  const winSuffix = $('geral-window-suffix');
-  winInput.max = total;
-  const w = S.geralWindow || 1;
-  if (w === 'all') {
-    winInput.value = total;
-    winInput.classList.add('window-all-mode');
-    winSuffix.textContent = 'meses (todos)';
-    winAllBtn.classList.add('btn-default');
-    winAllBtn.classList.remove('btn-outline');
-  } else {
-    const n = parseInt(w) || 1;
-    winInput.value = Math.min(n, total);
-    winInput.classList.remove('window-all-mode');
-    winSuffix.textContent = String(winInput.value) === '1' ? 'mês' : 'meses';
-    winAllBtn.classList.remove('btn-default');
-    winAllBtn.classList.add('btn-outline');
-  }
+
+  const inp = bar.querySelector('.window-input');
+  const suffix = bar.querySelector('.period-bar-suffix');
+  const rangeEl = bar.querySelector('.period-bar-range');
+  const pills = bar.querySelectorAll('.period-quick-btn');
+
+  inp.max = total;
+  const w = S[stateKey] || 1;
+  const n = w === 'all' ? total : Math.min(parseInt(w) || 1, total);
+  inp.value = n;
+  suffix.textContent = n === 1 ? (suffixOpts?.singular || 'mês') : (suffixOpts?.plural || 'meses');
+
+  // Active pill
+  pills.forEach(b => {
+    const data = b.dataset.n;
+    const isAll = data === 'all';
+    const matches = (isAll && w === 'all') || (!isAll && String(w) === data);
+    b.classList.toggle('active', matches);
+  });
+
+  // Range chip
+  rangeEl.textContent = rangeText || '—';
 }
 
 function renderGeral(data) {
-  setupGeralWindow();
-  syncGeralWindowUI();
+  setupPeriodBar('geral-period-bar', 'geralWindow', () => renderGeral(currentData()));
 
   const months = Object.keys(S.months).sort();
   const w = S.geralWindow || 1;
   const winN = w === 'all' ? months.length : Math.min(parseInt(w) || 1, months.length);
 
   let summary = data.summary;
+  let rangeText = '';
   if (winN >= 2 && months.length >= 2) {
     const slice = months.slice(-winN);
     summary = averageSummaries(slice.map(k => S.months[k].summary));
     const first = fmt.monthLabel(slice[0]);
     const last = fmt.monthLabel(slice[slice.length - 1]);
+    rangeText = `${first} → ${last}`;
     $('geral-period-label').innerHTML =
       `Média mensal dos últimos <strong>${slice.length}</strong> meses · ${first} → ${last}`;
+  } else {
+    rangeText = fmt.monthLabel(S.currentMonth);
+    $('geral-period-label').textContent = fmt.monthLabel(S.currentMonth);
   }
+
+  syncPeriodBar('geral-period-bar', 'geralWindow', rangeText);
 
   renderGeralCards(summary, data.clients);
   renderChartComposicao(data);
@@ -2192,16 +2213,14 @@ function renderComparativo() {
     </div>`;
   }
 
-  // ─── Window banner + averages ──────────────────────────────
-  const windowLabels = { '2': 'últimos 2 meses', '3': 'últimos 3 meses', '6': 'últimos 6 meses', '12': 'últimos 12 meses' };
-  const winLabel = win === 'all'
-    ? `todos os ${summaries.length} meses`
-    : `${windowLabels[win] || `últimos ${win} meses`} (${summaries.length} disponíveis)`;
+  // Range string (shown as chip inside the period bar)
   const firstLbl = summaries[0]?.label || '—';
   const lastLbl = summaries[summaries.length - 1]?.label || '—';
-  const windowBanner = `<div class="compare-window-banner">
-    Janela: <strong>${winLabel}</strong> · ${firstLbl} → ${lastLbl}
-  </div>`;
+  const compareRange = summaries.length === 1 ? firstLbl : `${firstLbl} → ${lastLbl}`;
+
+  // Wire / sync the period bar (idempotent)
+  setupPeriodBar('compare-period-bar', 'compareWindow', () => renderComparativo());
+  syncPeriodBar('compare-period-bar', 'compareWindow', compareRange);
 
   // Compute averages over the window (skip months where the client isn't present)
   const present = summaries.filter(s => s.present);
@@ -2243,7 +2262,7 @@ function renderComparativo() {
       <div class="chart-wrap" style="height:280px"><canvas id="cmp-pos-neg"></canvas></div>
     </div>`;
 
-  container.innerHTML = banner + windowBanner + avgCardsHtml + `
+  container.innerHTML = banner + avgCardsHtml + `
     <div class="charts-grid" style="margin-bottom:24px">
       <div class="chart-card chart-full">
         <div class="chart-card-header"><div class="chart-card-title">Resultado ${byClient ? 'do Cliente' : 'Final'} por Mês</div></div>
@@ -2419,47 +2438,6 @@ function setupCompareHeader() {
     renderComparativo();
   });
   SS.compare.setItems(getUnifiedClientList());
-
-  // Janela (últimos N meses) — input numérico livre + botão "Todos"
-  const winInput = $('compare-window-n');
-  const winAllBtn = $('compare-window-all');
-  const winSuffix = $('compare-window-suffix');
-
-  const syncWindowUI = () => {
-    const total = Object.keys(S.months).length;
-    winInput.max = total;
-    if (S.compareWindow === 'all') {
-      winInput.value = total;
-      winInput.classList.add('window-all-mode');
-      winSuffix.textContent = `meses (todos)`;
-      winAllBtn.classList.add('btn-default');
-      winAllBtn.classList.remove('btn-outline');
-    } else {
-      const n = parseInt(S.compareWindow) || 3;
-      winInput.value = Math.min(n, total);
-      winInput.classList.remove('window-all-mode');
-      winSuffix.textContent = winInput.value === '1' ? 'mês' : 'meses';
-      winAllBtn.classList.remove('btn-default');
-      winAllBtn.classList.add('btn-outline');
-    }
-  };
-  syncWindowUI();
-
-  winInput.addEventListener('input', () => {
-    const total = Object.keys(S.months).length;
-    let v = parseInt(winInput.value) || 1;
-    if (v < 1) v = 1;
-    if (v > total) v = total;
-    S.compareWindow = v >= total ? 'all' : String(v);
-    renderComparativo();
-    syncWindowUI();
-  });
-
-  winAllBtn.addEventListener('click', () => {
-    S.compareWindow = 'all';
-    renderComparativo();
-    syncWindowUI();
-  });
 }
 
 // ── Shared chart option factories ────────────────────────────

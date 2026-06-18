@@ -80,16 +80,29 @@
 
     <!-- ── TAB: Visão Geral ────────────────────────────── -->
     <div id="tab-geral" class="tab-panel active">
-      <div class="section-header mb-4" style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap">
+      <div class="section-header mb-4">
         <div>
           <div class="section-title">Visão Geral</div>
           <div class="section-sub" id="geral-period-label">—</div>
         </div>
-        <div class="window-filter" id="geral-window-filter" style="display:none">
-          <label class="window-filter-label" for="geral-window-n">Últimos</label>
-          <input type="number" id="geral-window-n" class="window-input" min="1" step="1" value="1">
-          <span class="window-suffix" id="geral-window-suffix">mês</span>
-          <button type="button" class="btn btn-outline btn-sm" id="geral-window-all">Todos</button>
+      </div>
+
+      <div class="period-bar" id="geral-period-bar" style="display:none">
+        <div class="period-bar-control">
+          <span class="period-bar-label">Período</span>
+          <span class="period-bar-input-wrap">
+            Últimos
+            <input type="number" id="geral-window-n" class="window-input" min="1" step="1" value="1">
+            <span class="period-bar-suffix" id="geral-window-suffix">mês</span>
+          </span>
+          <span class="period-bar-range" id="geral-window-range">—</span>
+        </div>
+        <div class="period-bar-quick">
+          <button type="button" class="period-quick-btn" data-n="1">Mês único</button>
+          <button type="button" class="period-quick-btn" data-n="3">3m</button>
+          <button type="button" class="period-quick-btn" data-n="6">6m</button>
+          <button type="button" class="period-quick-btn" data-n="12">12m</button>
+          <button type="button" class="period-quick-btn" data-n="all">Todos</button>
         </div>
       </div>
 
@@ -401,12 +414,23 @@
             <button class="search-clear hidden" type="button" aria-label="Limpar">×</button>
             <div class="search-dropdown hidden"></div>
           </div>
-          <div class="window-filter">
-            <label class="window-filter-label" for="compare-window-n">Últimos</label>
+        </div>
+      </div>
+      <div class="period-bar" id="compare-period-bar" style="display:none">
+        <div class="period-bar-control">
+          <span class="period-bar-label">Período</span>
+          <span class="period-bar-input-wrap">
+            Últimos
             <input type="number" id="compare-window-n" class="window-input" min="1" step="1" value="3">
-            <span class="window-suffix" id="compare-window-suffix">meses</span>
-            <button type="button" class="btn btn-outline btn-sm" id="compare-window-all">Todos</button>
-          </div>
+            <span class="period-bar-suffix" id="compare-window-suffix">meses</span>
+          </span>
+          <span class="period-bar-range" id="compare-window-range">—</span>
+        </div>
+        <div class="period-bar-quick">
+          <button type="button" class="period-quick-btn" data-n="3">3m</button>
+          <button type="button" class="period-quick-btn" data-n="6">6m</button>
+          <button type="button" class="period-quick-btn" data-n="12">12m</button>
+          <button type="button" class="period-quick-btn" data-n="all">Todos</button>
         </div>
       </div>
       <div id="compare-content"></div>
