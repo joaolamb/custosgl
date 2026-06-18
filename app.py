@@ -14,6 +14,27 @@ app.secret_key = os.environ.get('SECRET_KEY', 'custos-dashboard-secret-2025')
 
 DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data.db'))
 
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+
+
+@app.context_processor
+def inject_static_version():
+    """Cache-buster baseado no mtime mais recente dos arquivos em static/.
+    Sempre que CSS ou JS muda, a URL muda e o navegador busca a versão nova."""
+    latest = 0
+    try:
+        for root, _dirs, files in os.walk(STATIC_DIR):
+            for f in files:
+                try:
+                    t = int(os.path.getmtime(os.path.join(root, f)))
+                    if t > latest:
+                        latest = t
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return {'static_version': latest}
+
 
 @contextmanager
 def db():
