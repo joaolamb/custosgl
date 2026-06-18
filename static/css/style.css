@@ -792,6 +792,35 @@ mark { background: rgb(0 39 73 / .12); color: var(--primary); font-weight: 600; 
 .compare-header-info { flex: 1; min-width: 240px; }
 .compare-header-filter { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
+.window-filter { display: flex; align-items: center; gap: 8px; }
+.window-filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cards-grid-avg { margin-bottom: 20px; }
+.card.card-avg .card-label::after {
+  content: ' (média)';
+  color: var(--text-muted);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.compare-window-banner {
+  padding: 10px 16px;
+  background: var(--bg);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--r-md);
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+.compare-window-banner strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
 /* ─── Grupos tab ─────────────────────────────────────── */
 .grupos-header {
   display: flex;

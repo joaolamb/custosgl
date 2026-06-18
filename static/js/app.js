@@ -485,7 +485,7 @@ function renderGeralCards(s, clients) {
     { label: 'Custo Total', value: fmt.brl(s.custo_total), cls: '', sub: 'Custo fixo + operacional' },
     { label: 'Resultado Final', value: fmt.brl(s.resultado_final), cls: lucro ? 'positive' : 'negative', sub: lucro ? '✓ Carteira com lucro' : '✗ Carteira com prejuízo', badge: lucro ? { cls: 'badge-pos', txt: 'Lucro' } : { cls: 'badge-neg', txt: 'Prejuízo' } },
     { label: 'Margem % Geral', value: fmt.pct(s.margem_pct), cls: s.margem_pct >= 0.32 ? 'positive' : s.margem_pct >= 0 ? '' : 'negative', sub: 'Resultado / Honorários · meta ≥ 32%', badge: s.margem_pct >= 0.32 ? { cls: 'badge-pos', txt: '≥ 32%' } : s.margem_pct >= 0 ? { cls: 'badge-warn', txt: 'Abaixo de 32%' } : { cls: 'badge-neg', txt: 'Negativa' } },
-    { label: 'Comissão Geral', value: fmt.pct(s.margem_comissao_pct || 0), cls: '', sub: `${fmt.brl(s.vlr_margem_total || 0)} · Comissão / Honorários` },
+    { label: 'Margem Geral', value: fmt.pct(s.margem_comissao_pct || 0), cls: '', sub: `${fmt.brl(s.vlr_margem_total || 0)} · Margem / Honorários` },
     { label: 'Nº de Atividades', value: fmt.int(s.num_atividades), cls: 'primary', sub: `${activeClients.length} clientes ativos` },
     { label: 'Custo Médio/Ativ.', value: fmt.brl(s.custo_medio_atividade), cls: '', sub: 'Custo total ÷ atividades', mono: true },
     { label: 'Clientes Positivos', value: s.clientes_positivos, cls: 'positive', sub: `${fmt.pct(s.clientes_positivos / (s.total_clientes || 1))} da carteira`, badge: { cls: 'badge-pos', txt: s.clientes_positivos + ' clientes' } },
@@ -2075,13 +2075,17 @@ function renderComparativo() {
   }
 
   // Build summaries — either aggregated or per-client across months
-  const summaries = keys.map(k => {
+  const allSummaries = keys.map(k => {
     if (byClient) {
       const c = findClientInMonth(k, S.compareClient);
       return { key: k, label: fmt.monthLabel(k), present: !!c, ...buildClientSummary(c) };
     }
     return { key: k, label: fmt.monthLabel(k), present: true, ...S.months[k].summary };
   });
+
+  // Apply window: 'all' or last N months
+  const win = S.compareWindow || 'all';
+  const summaries = win === 'all' ? allSummaries : allSummaries.slice(-parseInt(win));
 
   // Banner with context info
   let banner = '';
@@ -2095,13 +2099,58 @@ function renderComparativo() {
     </div>`;
   }
 
+  // ─── Window banner + averages ──────────────────────────────
+  const windowLabels = { '2': 'últimos 2 meses', '3': 'últimos 3 meses', '6': 'últimos 6 meses', '12': 'últimos 12 meses' };
+  const winLabel = win === 'all'
+    ? `todos os ${summaries.length} meses`
+    : `${windowLabels[win] || `últimos ${win} meses`} (${summaries.length} disponíveis)`;
+  const firstLbl = summaries[0]?.label || '—';
+  const lastLbl = summaries[summaries.length - 1]?.label || '—';
+  const windowBanner = `<div class="compare-window-banner">
+    Janela: <strong>${winLabel}</strong> · ${firstLbl} → ${lastLbl}
+  </div>`;
+
+  // Compute averages over the window (skip months where the client isn't present)
+  const present = summaries.filter(s => s.present);
+  const sumOf = key => present.reduce((acc, s) => acc + (s[key] || 0), 0);
+  const avg = key => present.length ? sumOf(key) / present.length : 0;
+  const avgRes = avg('resultado_final');
+  const avgRec = avg('receita_bruta');
+  const avgCusto = avg('custo_total');
+  const avgHon = avg('honorarios_totais');
+  const avgExtra = avg('extras_totais');
+  const avgAtiv = avg('num_atividades');
+  // Margem média ponderada (somatório de resultado / somatório de honorário) é mais precisa que média de %
+  const sumHon = sumOf('honorarios_totais');
+  const avgMargem = sumHon > 0 ? sumOf('resultado_final') / sumHon : 0;
+  const cpaAvg = avg('custo_medio_atividade');
+
+  const avgCards = [
+    { label: 'Resultado', value: fmt.brl(avgRes), cls: avgRes >= 0 ? 'positive' : 'negative', sub: `Total no período: ${fmt.brl(sumOf('resultado_final'))}` },
+    { label: 'Receita Bruta', value: fmt.brl(avgRec), cls: 'primary', sub: 'Honorário + Extra (média mensal)' },
+    { label: 'Custo Total', value: fmt.brl(avgCusto), cls: '', sub: 'Fixo + Operacional (média mensal)' },
+    { label: 'Margem %', value: fmt.pct(avgMargem), cls: avgMargem >= 0.32 ? 'positive' : avgMargem >= 0 ? '' : 'negative', sub: 'Ponderada pelo honorário · meta ≥ 32%' },
+    { label: 'Honorários', value: fmt.brl(avgHon), cls: 'primary', sub: `Extras: ${fmt.brl(avgExtra)} (médias)` },
+    { label: 'Nº Atividades', value: fmt.int(Math.round(avgAtiv)), cls: 'primary', sub: byClient ? '' : `Custo/Ativ. médio: ${fmt.brl(cpaAvg)}` },
+  ];
+
+  const avgCardsHtml = `
+    <div class="cards-grid cards-grid-avg">
+      ${avgCards.map((c, i) => `
+        <div class="card card-avg" style="animation-delay:${i*30}ms">
+          <div class="card-label">${c.label}</div>
+          <div class="card-value ${c.cls}">${c.value}</div>
+          <div class="card-sub">${c.sub}</div>
+        </div>`).join('')}
+    </div>`;
+
   const posNegSection = byClient ? '' : `
     <div class="chart-card">
       <div class="chart-card-header"><div class="chart-card-title">Clientes Positivos vs Negativos</div></div>
       <div class="chart-wrap" style="height:280px"><canvas id="cmp-pos-neg"></canvas></div>
     </div>`;
 
-  container.innerHTML = banner + `
+  container.innerHTML = banner + windowBanner + avgCardsHtml + `
     <div class="charts-grid" style="margin-bottom:24px">
       <div class="chart-card chart-full">
         <div class="chart-card-header"><div class="chart-card-title">Resultado ${byClient ? 'do Cliente' : 'Final'} por Mês</div></div>
@@ -2277,6 +2326,14 @@ function setupCompareHeader() {
     renderComparativo();
   });
   SS.compare.setItems(getUnifiedClientList());
+
+  // Janela (últimos N meses)
+  const winSel = $('compare-window');
+  winSel.value = S.compareWindow || 'all';
+  winSel.addEventListener('change', () => {
+    S.compareWindow = winSel.value;
+    renderComparativo();
+  });
 }
 
 // ── Shared chart option factories ────────────────────────────
