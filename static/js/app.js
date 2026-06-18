@@ -464,10 +464,102 @@ function setupAddMonth() {
 // ═══════════════════════════════════════════════════════════════
 // TAB: VISÃO GERAL
 // ═══════════════════════════════════════════════════════════════
+function averageSummaries(summaries) {
+  if (!summaries.length) return null;
+  const n = summaries.length;
+  const sum = k => summaries.reduce((a, s) => a + (s[k] || 0), 0);
+  const avg = k => sum(k) / n;
+  const honSum = sum('honorarios_totais');
+  const receitaSum = sum('receita_bruta');
+  return {
+    honorarios_totais: avg('honorarios_totais'),
+    extras_totais: avg('extras_totais'),
+    receita_bruta: avg('receita_bruta'),
+    impostos: avg('impostos'),
+    custo_total: avg('custo_total'),
+    vlr_margem_total: avg('vlr_margem_total'),
+    // Margem ponderada: ∑x / ∑honorário (correto pra agregar margens em períodos)
+    margem_pct: honSum > 0 ? sum('resultado_final') / honSum : 0,
+    margem_comissao_pct: honSum > 0 ? sum('vlr_margem_total') / honSum : 0,
+    resultado_final: avg('resultado_final'),
+    num_atividades: Math.round(avg('num_atividades')),
+    custo_medio_atividade: avg('custo_medio_atividade'),
+    clientes_positivos: Math.round(avg('clientes_positivos')),
+    clientes_negativos: Math.round(avg('clientes_negativos')),
+    clientes_sem_honorario: Math.round(avg('clientes_sem_honorario')),
+    clientes_zerados: Math.round(avg('clientes_zerados') || 0),
+    total_clientes: Math.round(avg('total_clientes')),
+    _windowed: true,
+    _windowSize: n,
+  };
+}
+
+function setupGeralWindow() {
+  if ($('geral-window-filter').dataset.wired === '1') return;
+  $('geral-window-filter').dataset.wired = '1';
+  const winInput = $('geral-window-n');
+  const winAllBtn = $('geral-window-all');
+  winInput.addEventListener('input', () => {
+    const total = Object.keys(S.months).length;
+    let v = parseInt(winInput.value) || 1;
+    if (v < 1) v = 1;
+    if (v > total) v = total;
+    S.geralWindow = v >= total && total > 1 ? 'all' : v;
+    renderGeral(currentData());
+  });
+  winAllBtn.addEventListener('click', () => {
+    S.geralWindow = 'all';
+    renderGeral(currentData());
+  });
+}
+
+function syncGeralWindowUI() {
+  const total = Object.keys(S.months).length;
+  const filter = $('geral-window-filter');
+  filter.style.display = total >= 2 ? '' : 'none';
+  if (total < 2) return;
+  const winInput = $('geral-window-n');
+  const winAllBtn = $('geral-window-all');
+  const winSuffix = $('geral-window-suffix');
+  winInput.max = total;
+  const w = S.geralWindow || 1;
+  if (w === 'all') {
+    winInput.value = total;
+    winInput.classList.add('window-all-mode');
+    winSuffix.textContent = 'meses (todos)';
+    winAllBtn.classList.add('btn-default');
+    winAllBtn.classList.remove('btn-outline');
+  } else {
+    const n = parseInt(w) || 1;
+    winInput.value = Math.min(n, total);
+    winInput.classList.remove('window-all-mode');
+    winSuffix.textContent = String(winInput.value) === '1' ? 'mês' : 'meses';
+    winAllBtn.classList.remove('btn-default');
+    winAllBtn.classList.add('btn-outline');
+  }
+}
+
 function renderGeral(data) {
-  renderGeralCards(data.summary, data.clients);
+  setupGeralWindow();
+  syncGeralWindowUI();
+
+  const months = Object.keys(S.months).sort();
+  const w = S.geralWindow || 1;
+  const winN = w === 'all' ? months.length : Math.min(parseInt(w) || 1, months.length);
+
+  let summary = data.summary;
+  if (winN >= 2 && months.length >= 2) {
+    const slice = months.slice(-winN);
+    summary = averageSummaries(slice.map(k => S.months[k].summary));
+    const first = fmt.monthLabel(slice[0]);
+    const last = fmt.monthLabel(slice[slice.length - 1]);
+    $('geral-period-label').innerHTML =
+      `Média mensal dos últimos <strong>${slice.length}</strong> meses · ${first} → ${last}`;
+  }
+
+  renderGeralCards(summary, data.clients);
   renderChartComposicao(data);
-  renderChartReceitaCusto(data);
+  renderChartReceitaCusto({ summary, clients: data.clients });
   renderChartTopPos(data);
   renderChartTopNeg(data);
 }
@@ -476,6 +568,7 @@ function renderGeralCards(s, clients) {
   const container = $('geral-cards');
   const lucro = s.resultado_final >= 0;
   const activeClients = clients.filter(c => c.num_atividades > 0 || c.total_custo > 0 || c.honorario > 0);
+  const avgSuffix = s._windowed ? ` <span style="color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0">(média ${s._windowSize}m)</span>` : '';
 
   const cards = [
     { label: 'Honorários Totais', value: fmt.brl(s.honorarios_totais), cls: 'primary', sub: 'Receita fixa do período' },
@@ -495,7 +588,7 @@ function renderGeralCards(s, clients) {
 
   container.innerHTML = cards.map((c, i) => `
     <div class="card" style="animation-delay:${i * 40}ms">
-      <div class="card-label">${c.label}</div>
+      <div class="card-label">${c.label}${avgSuffix}</div>
       <div class="card-value ${c.cls} ${c.mono ? 'mono' : ''}">${c.value}</div>
       ${c.badge ? `<div class="card-badge ${c.badge.cls}">${c.badge.txt}</div>` : ''}
       <div class="card-sub">${c.sub}</div>

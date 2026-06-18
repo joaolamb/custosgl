@@ -80,10 +80,16 @@
 
     <!-- ── TAB: Visão Geral ────────────────────────────── -->
     <div id="tab-geral" class="tab-panel active">
-      <div class="section-header mb-4">
+      <div class="section-header mb-4" style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap">
         <div>
           <div class="section-title">Visão Geral</div>
           <div class="section-sub" id="geral-period-label">—</div>
+        </div>
+        <div class="window-filter" id="geral-window-filter" style="display:none">
+          <label class="window-filter-label" for="geral-window-n">Últimos</label>
+          <input type="number" id="geral-window-n" class="window-input" min="1" step="1" value="1">
+          <span class="window-suffix" id="geral-window-suffix">mês</span>
+          <button type="button" class="btn btn-outline btn-sm" id="geral-window-all">Todos</button>
         </div>
       </div>
 
