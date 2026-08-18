@@ -185,20 +185,62 @@ function showEmptyState() {
   show($('no-data'));
 }
 
+const NAV_PILLS_VISIBLE = 4;
+
+function selectMonth(key) {
+  S.currentMonth = key;
+  updateMonthPills();
+  updatePeriodSelect();
+  populateClientSelects();
+  renderCurrentTab();
+}
+
 function updateMonthPills() {
   const container = $('nav-month-pills');
   container.innerHTML = '';
-  Object.keys(S.months).sort().forEach(key => {
+
+  const keys = Object.keys(S.months).sort();
+  // Meses recentes ficam como pills; os antigos vão para o dropdown.
+  // Se o mês ativo for antigo, ele entra nos pills no lugar do mais antigo visível.
+  let visible = keys.slice(-NAV_PILLS_VISIBLE);
+  let hidden = keys.slice(0, Math.max(0, keys.length - NAV_PILLS_VISIBLE));
+  if (S.currentMonth && hidden.includes(S.currentMonth)) {
+    hidden = hidden.filter(k => k !== S.currentMonth).concat(visible[0]);
+    visible = [S.currentMonth, ...visible.slice(1)];
+    hidden.sort();
+  }
+
+  if (hidden.length) {
+    const wrap = document.createElement('div');
+    wrap.className = 'month-dropdown';
+    wrap.innerHTML = `
+      <button type="button" class="nav-month-pill month-dropdown-btn">
+        +${hidden.length}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="month-dropdown-menu">
+        ${hidden.map(k => `<button type="button" class="month-dropdown-item" data-key="${k}">${fmt.monthLabel(k)}</button>`).join('')}
+      </div>`;
+
+    const btn = wrap.querySelector('.month-dropdown-btn');
+    const menu = wrap.querySelector('.month-dropdown-menu');
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      menu.classList.toggle('open');
+    });
+    menu.addEventListener('click', e => e.stopPropagation());
+    menu.querySelectorAll('.month-dropdown-item').forEach(item => {
+      item.addEventListener('click', () => selectMonth(item.dataset.key));
+    });
+    document.addEventListener('click', () => menu.classList.remove('open'));
+    container.appendChild(wrap);
+  }
+
+  visible.forEach(key => {
     const pill = document.createElement('button');
     pill.className = 'nav-month-pill' + (key === S.currentMonth ? ' active' : '');
     pill.textContent = fmt.monthLabel(key);
-    pill.addEventListener('click', () => {
-      S.currentMonth = key;
-      updateMonthPills();
-      updatePeriodSelect();
-      populateClientSelects();
-      renderCurrentTab();
-    });
+    pill.addEventListener('click', () => selectMonth(key));
     container.appendChild(pill);
   });
 }
@@ -1784,7 +1826,7 @@ function renderGruposOverview(data) {
               <th class="num">Honorário</th>
               <th class="num">Extra</th>
               <th class="num">Custo</th>
-              <th class="num">Comissão</th>
+              <th class="num">Margem</th>
               <th class="num">Resultado</th>
               <th class="num">Margem %</th>
               <th class="num">Ativ.</th>
@@ -1839,7 +1881,7 @@ function renderGruposDetail(data, groupName) {
     { label: 'Extra Total', value: fmt.brl(agg.extra), cls: '', sub: '' },
     { label: 'Receita Bruta', value: fmt.brl(receita), cls: 'primary', sub: 'Honorário + Extra' },
     { label: 'Custo Total', value: fmt.brl(agg.total_custo), cls: '', sub: '' },
-    { label: 'Comissão', value: fmt.brl(agg.margem_col), cls: '', sub: agg.honorario > 0 ? `${fmt.pct(comissaoPct)} do honorário` : '' },
+    { label: 'Margem', value: fmt.brl(agg.margem_col), cls: '', sub: agg.honorario > 0 ? `${fmt.pct(comissaoPct)} do honorário` : '' },
     { label: 'Imposto', value: fmt.brl(agg.imposto), cls: '', sub: '' },
     { label: 'Resultado Final', value: fmt.brl(agg.resultado), cls: agg.resultado >= 0 ? 'positive' : 'negative', sub: agg.resultado >= 0 ? '✓ Grupo com lucro' : '✗ Grupo com prejuízo' },
     { label: 'Margem %', value: fmt.pct(pct), cls: pct >= 0.32 ? 'positive' : pct >= 0 ? '' : 'negative', sub: 'Resultado / Honorários · meta ≥ 32%' },
