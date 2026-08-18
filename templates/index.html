@@ -32,7 +32,24 @@
     </div>
 
     <div class="nav-actions">
-      <div id="nav-month-pills" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+      <div class="month-picker" id="month-picker">
+        <button type="button" class="month-picker-btn" id="month-picker-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18" stroke-linecap="round"/></svg>
+          <span id="month-picker-label">Nenhum mês</span>
+          <svg class="month-picker-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="month-picker-menu" id="month-picker-menu">
+          <div class="month-picker-head">
+            <span class="month-picker-title">Períodos</span>
+            <div class="month-picker-actions">
+              <button type="button" class="month-picker-action" data-act="all">Todos</button>
+              <button type="button" class="month-picker-action" data-act="last">Último</button>
+            </div>
+          </div>
+          <div class="month-picker-list" id="month-picker-list"></div>
+          <div class="month-picker-foot" id="month-picker-foot"></div>
+        </div>
+      </div>
       <button class="btn btn-outline btn-sm" id="add-month-btn">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
         Mês

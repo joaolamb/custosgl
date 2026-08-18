@@ -5,7 +5,8 @@
 // ── State ────────────────────────────────────────────────────
 const S = {
   months: {},           // { "2025-01": { clients, summary, month_year } }
-  currentMonth: null,   // key like "2025-01"
+  currentMonth: null,   // key like "2025-01" — mês representativo (mais recente selecionado)
+  selectedMonths: [],   // meses marcados no picker; >1 = dados somados do período
   currentTab: 'geral',
   viewMode: 'geral',    // 'geral' | 'empresas' | 'individual'
   selectedClient: null,
@@ -87,7 +88,73 @@ function mkChart(id, config) {
 }
 
 function currentData() {
-  return S.months[S.currentMonth] || null;
+  const sel = (S.selectedMonths || []).filter(k => S.months[k]);
+  if (sel.length > 1) return aggregateMonths(sel);
+  return S.months[sel[0] || S.currentMonth] || null;
+}
+
+// Soma os indicadores de cada cliente ao longo dos meses selecionados
+function aggregateMonths(keys) {
+  const sorted = [...keys].sort();
+  const byKey = new Map();
+
+  sorted.forEach(mk => {
+    (S.months[mk].clients || []).forEach(c => {
+      const id = normCnpj(c.doc) || c.nome;
+      const acc = byKey.get(id);
+      if (!acc) {
+        byKey.set(id, { ...c });
+        return;
+      }
+      ['num_atividades', 'custo_fixo', 'custo_operacional', 'total_custo',
+       'honorario', 'extra', 'imposto', 'margem_col', 'resultado'].forEach(f => {
+        acc[f] = (acc[f] || 0) + (c[f] || 0);
+      });
+      acc.is_filial = acc.is_filial || c.is_filial;
+      acc.is_matriz = acc.is_matriz || c.is_matriz;
+      if (c.matriz_nome && !acc.matriz_nome) acc.matriz_nome = c.matriz_nome;
+    });
+  });
+
+  const clients = [...byKey.values()].map(c => ({
+    ...c,
+    percentual: c.honorario > 0 ? c.resultado / c.honorario : 0,
+    margem_pct: c.honorario > 0 ? c.margem_col / c.honorario : 0,
+  }));
+
+  return {
+    month_year: sorted[sorted.length - 1],
+    months_included: sorted,
+    is_aggregate: true,
+    clients,
+    summary: computeSummaryJS(clients),
+  };
+}
+
+// Espelha compute_summary() do backend
+function computeSummaryJS(clients) {
+  const sum = f => clients.reduce((a, c) => a + (c[f] || 0), 0);
+  const hon = sum('honorario'), extra = sum('extra');
+  const custo = sum('total_custo'), margem = sum('margem_col');
+  const res = sum('resultado'), ativ = sum('num_atividades');
+  return {
+    honorarios_totais: hon,
+    extras_totais: extra,
+    receita_bruta: hon + extra,
+    impostos: sum('imposto'),
+    custo_total: custo,
+    vlr_margem_total: margem,
+    margem_comissao_pct: hon > 0 ? margem / hon : 0,
+    resultado_final: res,
+    margem_pct: hon > 0 ? res / hon : 0,
+    num_atividades: ativ,
+    custo_medio_atividade: ativ > 0 ? custo / ativ : 0,
+    clientes_positivos: clients.filter(c => c.resultado > 0).length,
+    clientes_negativos: clients.filter(c => c.resultado < 0).length,
+    clientes_zerados: clients.filter(c => c.resultado === 0 && c.num_atividades === 0).length,
+    clientes_sem_honorario: clients.filter(c => c.honorario === 0 && c.total_custo > 0).length,
+    total_clientes: clients.length,
+  };
 }
 
 function getClients(data) {
@@ -168,6 +235,7 @@ function showError(id, msg) {
 // ── Dashboard Initialization ─────────────────────────────────
 function showDashboard(monthKey) {
   S.currentMonth = monthKey;
+  if (monthKey) S.selectedMonths = [monthKey];
   hide($('no-data'));
   document.querySelector('.filter-bar').style.display = '';
   document.querySelector('.nav-tabs').style.visibility = '';
@@ -185,63 +253,69 @@ function showEmptyState() {
   show($('no-data'));
 }
 
-const NAV_PILLS_VISIBLE = 4;
-
-function selectMonth(key) {
-  S.currentMonth = key;
+function applyMonthSelection() {
+  const sel = (S.selectedMonths || []).filter(k => S.months[k]).sort();
+  S.selectedMonths = sel;
+  S.currentMonth = sel[sel.length - 1] || Object.keys(S.months).sort().pop() || null;
   updateMonthPills();
   updatePeriodSelect();
   populateClientSelects();
   renderCurrentTab();
 }
 
+// Mantém o nome antigo: agora renderiza o picker de múltiplos meses
 function updateMonthPills() {
-  const container = $('nav-month-pills');
-  container.innerHTML = '';
-
   const keys = Object.keys(S.months).sort();
-  // Meses recentes ficam como pills; os antigos vão para o dropdown.
-  // Se o mês ativo for antigo, ele entra nos pills no lugar do mais antigo visível.
-  let visible = keys.slice(-NAV_PILLS_VISIBLE);
-  let hidden = keys.slice(0, Math.max(0, keys.length - NAV_PILLS_VISIBLE));
-  if (S.currentMonth && hidden.includes(S.currentMonth)) {
-    hidden = hidden.filter(k => k !== S.currentMonth).concat(visible[0]);
-    visible = [S.currentMonth, ...visible.slice(1)];
-    hidden.sort();
-  }
+  if (!S.selectedMonths?.length && keys.length) S.selectedMonths = [keys[keys.length - 1]];
+  const sel = new Set(S.selectedMonths);
 
-  if (hidden.length) {
-    const wrap = document.createElement('div');
-    wrap.className = 'month-dropdown';
-    wrap.innerHTML = `
-      <button type="button" class="nav-month-pill month-dropdown-btn">
-        +${hidden.length}
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <div class="month-dropdown-menu">
-        ${hidden.map(k => `<button type="button" class="month-dropdown-item" data-key="${k}">${fmt.monthLabel(k)}</button>`).join('')}
-      </div>`;
+  const label = $('month-picker-label');
+  if (!sel.size)              label.textContent = 'Nenhum mês';
+  else if (sel.size === 1)    label.textContent = fmt.monthLabel([...sel][0]);
+  else if (sel.size === keys.length) label.textContent = `Todos (${sel.size})`;
+  else                        label.textContent = `${sel.size} meses`;
 
-    const btn = wrap.querySelector('.month-dropdown-btn');
-    const menu = wrap.querySelector('.month-dropdown-menu');
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      menu.classList.toggle('open');
+  $('month-picker-list').innerHTML = keys.slice().reverse().map(k => `
+    <button type="button" class="month-picker-item ${sel.has(k) ? 'checked' : ''}" data-key="${k}">
+      <span class="mp-box"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="m5 13 4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="mp-label">${fmt.monthLabel(k)}</span>
+    </button>`).join('');
+
+  const first = [...sel].sort()[0], last = [...sel].sort().pop();
+  $('month-picker-foot').innerHTML = !sel.size
+    ? 'Selecione ao menos um mês'
+    : sel.size === 1
+      ? `Exibindo <strong>${fmt.monthLabel(first)}</strong>`
+      : `Somando <strong>${sel.size}</strong> meses · ${fmt.monthLabel(first)} → ${fmt.monthLabel(last)}`;
+
+  $('month-picker-list').querySelectorAll('.month-picker-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const k = item.dataset.key;
+      const next = new Set(S.selectedMonths);
+      if (next.has(k)) { if (next.size > 1) next.delete(k); }  // nunca deixa vazio
+      else next.add(k);
+      S.selectedMonths = [...next];
+      applyMonthSelection();
     });
-    menu.addEventListener('click', e => e.stopPropagation());
-    menu.querySelectorAll('.month-dropdown-item').forEach(item => {
-      item.addEventListener('click', () => selectMonth(item.dataset.key));
-    });
-    document.addEventListener('click', () => menu.classList.remove('open'));
-    container.appendChild(wrap);
-  }
+  });
+}
 
-  visible.forEach(key => {
-    const pill = document.createElement('button');
-    pill.className = 'nav-month-pill' + (key === S.currentMonth ? ' active' : '');
-    pill.textContent = fmt.monthLabel(key);
-    pill.addEventListener('click', () => selectMonth(key));
-    container.appendChild(pill);
+function setupMonthPicker() {
+  const picker = $('month-picker');
+  $('month-picker-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    picker.classList.toggle('open');
+  });
+  $('month-picker-menu').addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', () => picker.classList.remove('open'));
+
+  picker.querySelectorAll('.month-picker-action').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const keys = Object.keys(S.months).sort();
+      if (!keys.length) return;
+      S.selectedMonths = btn.dataset.act === 'all' ? keys : [keys[keys.length - 1]];
+      applyMonthSelection();
+    });
   });
 }
 
@@ -253,9 +327,10 @@ function updatePeriodSelect() {
     const opt = document.createElement('option');
     opt.value = key;
     opt.textContent = fmt.monthLabel(key);
-    if (key === S.currentMonth) opt.selected = true;
     sel.appendChild(opt);
   });
+  const n = (S.selectedMonths || []).length;
+  sel.value = n > 1 ? 'all' : (S.selectedMonths?.[0] || S.currentMonth || 'all');
 }
 
 function populateClientSelects() {
@@ -449,12 +524,9 @@ function setupViewMode() {
   });
 
   $('period-select').addEventListener('change', e => {
-    if (e.target.value !== 'all') {
-      S.currentMonth = e.target.value;
-      updateMonthPills();
-      populateClientSelects();
-    }
-    renderCurrentTab();
+    const keys = Object.keys(S.months).sort();
+    S.selectedMonths = e.target.value === 'all' ? keys : [e.target.value];
+    applyMonthSelection();
   });
 }
 
@@ -605,6 +677,21 @@ function renderGeral(data) {
 
   let summary = data.summary;
   let rangeText = '';
+
+  // Multi-seleção no picker manda: mostra a soma do período e oculta a barra "Últimos N"
+  if (data.is_aggregate) {
+    const inc = data.months_included;
+    $('geral-period-label').innerHTML =
+      `Soma de <strong>${inc.length}</strong> meses · ${fmt.monthLabel(inc[0])} → ${fmt.monthLabel(inc[inc.length - 1])}`;
+    $('geral-period-bar').style.display = 'none';
+    renderGeralCards(summary, data.clients);
+    renderChartComposicao(data);
+    renderChartReceitaCusto({ summary, clients: data.clients });
+    renderChartTopPos(data);
+    renderChartTopNeg(data);
+    return;
+  }
+
   if (winN >= 2 && months.length >= 2) {
     const slice = months.slice(-winN);
     summary = averageSummaries(slice.map(k => S.months[k].summary));
@@ -2528,6 +2615,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupTabs();
   setupViewMode();
   setupAddMonth();
+  setupMonthPicker();
   setupGrupos();
   setupGroupCRUD();
   loadPersistedMonths();
