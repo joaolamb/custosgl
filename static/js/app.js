@@ -319,19 +319,8 @@ function setupMonthPicker() {
   });
 }
 
-function updatePeriodSelect() {
-  const sel = $('period-select');
-  if (!sel) return;
-  sel.innerHTML = '<option value="all">Todos os meses</option>';
-  Object.keys(S.months).sort().forEach(key => {
-    const opt = document.createElement('option');
-    opt.value = key;
-    opt.textContent = fmt.monthLabel(key);
-    sel.appendChild(opt);
-  });
-  const n = (S.selectedMonths || []).length;
-  sel.value = n > 1 ? 'all' : (S.selectedMonths?.[0] || S.currentMonth || 'all');
-}
+// Mantida por compatibilidade — o período agora vive no #month-picker
+function updatePeriodSelect() {}
 
 function populateClientSelects() {
   const data = currentData();
@@ -523,11 +512,7 @@ function setupViewMode() {
     renderCurrentTab();
   });
 
-  $('period-select').addEventListener('change', e => {
-    const keys = Object.keys(S.months).sort();
-    S.selectedMonths = e.target.value === 'all' ? keys : [e.target.value];
-    applyMonthSelection();
-  });
+  // O seletor de período agora é o #month-picker (multi-seleção) — ver setupMonthPicker()
 }
 
 // ── Add Month Modal ──────────────────────────────────────────
