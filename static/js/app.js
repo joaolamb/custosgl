@@ -441,11 +441,30 @@ function createSearchSelect(containerId, onSelect) {
   }
 
   return {
+    // Ao trocar de mês a lista muda e os índices se deslocam, então a seleção
+    // é remapeada por CNPJ/nome em vez de ser descartada.
     setItems(newItems) {
+      const prev = selectedIdx !== null ? items[selectedIdx] : null;
       items = newItems || [];
       filtered = items;
       activeIdx = -1;
-      if (selectedIdx !== null && !items[selectedIdx]) clear();
+      if (prev) {
+        const i = items.findIndex(it => prev.doc ? it.doc === prev.doc : it.nome === prev.nome);
+        if (i >= 0) selectedIdx = i;
+        else clear();
+      } else if (selectedIdx !== null && !items[selectedIdx]) {
+        clear();
+      }
+    },
+    // Reaplica a seleção na UI sem disparar o callback (usado ao re-renderizar)
+    selectSilent(idx) {
+      const item = items[idx];
+      if (!item) return false;
+      selectedIdx = idx;
+      input.value = item.nome + (item.doc ? ` — ${item.doc}` : '');
+      clearBtn.classList.remove('hidden');
+      close();
+      return true;
     },
     clear,
     getSelected: () => selectedIdx,
@@ -1435,8 +1454,17 @@ function renderIndividual(data) {
     });
   }
   SS.individual.setItems(data.clients);
-  show($('individual-empty'));
-  hide($('individual-content'));
+
+  // Mantém o cliente escolhido ao trocar/adicionar meses — só limpa se ele
+  // não existir no período selecionado.
+  const keep = SS.individual.getSelected();
+  if (keep !== null && data.clients[keep]) {
+    SS.individual.selectSilent(keep);
+    renderClientDetail(data, keep);
+  } else {
+    show($('individual-empty'));
+    hide($('individual-content'));
+  }
 }
 
 function clientStatus(c, avgCusto) {

@@ -130,6 +130,20 @@ def save_month(month_year: str, payload: dict) -> None:
         ''', (month_year, json.dumps(payload), len(payload.get('clients', [])), now, now))
 
 
+def recompute_ratios(clients: list[dict]) -> list[dict]:
+    """
+    Recalcula percentual e margem_pct a partir dos valores. Aplicado na leitura
+    para que meses gravados por versões antigas do parser (que liam a escala
+    errada da planilha e mostravam 3843% no lugar de 38,43%) fiquem corretos
+    sem precisar reenviar a planilha.
+    """
+    for c in clients:
+        hon = c.get('honorario') or 0
+        c['percentual'] = (c.get('resultado') or 0) / hon if hon else 0.0
+        c['margem_pct'] = (c.get('margem_col') or 0) / hon if hon else 0.0
+    return clients
+
+
 def enrich_with_filial(clients: list[dict]) -> list[dict]:
     """
     Marca filiais quando múltiplos clientes compartilham a raiz do CNPJ
@@ -168,6 +182,7 @@ def get_month(month_year: str):
         if not row:
             return None
         data = json.loads(row['payload'])
+        recompute_ratios(data.get('clients', []))
         enrich_with_filial(data.get('clients', []))
         return data
 
@@ -184,6 +199,7 @@ def get_all_months() -> dict:
         out = {}
         for r in rows:
             data = json.loads(r['payload'])
+            recompute_ratios(data.get('clients', []))
             enrich_with_filial(data.get('clients', []))
             out[r['month_year']] = data
         return out
@@ -260,10 +276,6 @@ def parse_excel(file_bytes: bytes) -> list[dict]:
     if c_nome is None or c_ativ is None or c_res is None:
         raise ValueError('Planilha sem cabeçalho esperado (Cliente, Nº Atividades, Resultado).')
 
-    # Detecta esquema novo pela presença de "Margem (%)". No esquema novo o
-    # percentual vem como número (3.09); no antigo vem como decimal (0.0309).
-    is_new_schema = c_mpct is not None
-
     def cell(row, idx):
         return safe_float(row.iloc[idx]) if idx is not None else 0.0
 
@@ -295,11 +307,16 @@ def parse_excel(file_bytes: bytes) -> list[dict]:
                 except Exception:
                     codigo = raw
 
-        pct_raw  = cell(row, c_pct)
-        mpct_raw = cell(row, c_mpct)
-        # Normaliza para decimal (frontend usa fmt.pct que multiplica por 100)
-        percentual = pct_raw / 100.0 if is_new_schema else pct_raw
-        margem_pct = mpct_raw / 100.0
+        # Os percentuais são derivados dos próprios valores em vez de lidos da
+        # planilha: dependendo do layout a coluna vem como fração (0.0309) ou
+        # como número percentual (3.09), e confiar nela produzia 3843% no lugar
+        # de 38,43%. Resultado/Honorário e VlrMargem/Honorário reproduzem
+        # exatamente as colunas da planilha, sem ambiguidade de escala.
+        honorario_v = cell(row, c_hon)
+        resultado_v = cell(row, c_res)
+        margem_v = cell(row, c_margem)
+        percentual = resultado_v / honorario_v if honorario_v else 0.0
+        margem_pct = margem_v / honorario_v if honorario_v else 0.0
 
         clients.append({
             'codigo': codigo,
