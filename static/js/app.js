@@ -25,8 +25,16 @@ const fmt = {
     if (a >= 1e3) return s + 'R$' + (a / 1e3).toFixed(1).replace('.', ',') + 'K';
     return fmt.brl(v);
   },
-  pct: v => (v * 100).toFixed(1).replace('.', ',') + '%',
+  // Percentual a partir de uma fração (0,3843 -> "38,43%"). Duas casas, sempre,
+  // com vírgula decimal.
+  pct: v => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format((v || 0) * 100) + '%',
+  // Mesma formatação para valores que já vêm multiplicados por 100 (gráficos)
+  pctNum: v => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0) + '%',
+  // Marcações de eixo: vírgula decimal, sem forçar casas (rótulos curtos)
+  pctAxis: v => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(v || 0) + '%',
   int: v => new Intl.NumberFormat('pt-BR').format(Math.round(v)),
+  // Multiplicadores ("1,5×") — vírgula decimal como o resto do sistema
+  mult: v => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v || 0),
   monthLabel: key => {
     if (!key) return '';
     const [y, m] = key.split('-');
@@ -1051,9 +1059,9 @@ function renderMargemPct(data) {
       indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.raw.toFixed(1)}%` } } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmt.pctNum(ctx.raw)}` } } },
       scales: {
-        x: { ticks: { callback: v => v + '%' }, grid: { color: C.border } },
+        x: { ticks: { callback: v => fmt.pctAxis(v) }, grid: { color: C.border } },
         y: { ticks: { font: { size: 11 } }, grid: { display: false } },
       },
     },
@@ -1517,11 +1525,11 @@ function renderDiagnostic(c, all, ctx) {
     status = 'critico';
     icon = '🚨';
     title = 'Cliente em situação crítica';
-    summary = `Este cliente gera <strong style="color:var(--danger)">prejuízo de ${fmt.brl(c.resultado)}</strong> e tem custo <strong>${(c.total_custo / avgCusto).toFixed(1)}× acima da média</strong> da carteira (${fmt.brl(avgCusto)}). A receita de ${fmt.brl(receita)} é insuficiente para cobrir os custos de ${fmt.brl(c.total_custo)}.`;
-    insights.push(`Custo total <span class="num">${fmt.brl(c.total_custo)}</span> representa <strong>${(c.total_custo / avgCusto).toFixed(1)}×</strong> a média da carteira`);
+    summary = `Este cliente gera <strong style="color:var(--danger)">prejuízo de ${fmt.brl(c.resultado)}</strong> e tem custo <strong>${fmt.mult(c.total_custo / avgCusto)}× acima da média</strong> da carteira (${fmt.brl(avgCusto)}). A receita de ${fmt.brl(receita)} é insuficiente para cobrir os custos de ${fmt.brl(c.total_custo)}.`;
+    insights.push(`Custo total <span class="num">${fmt.brl(c.total_custo)}</span> representa <strong>${fmt.mult(c.total_custo / avgCusto)}×</strong> a média da carteira`);
     insights.push(`Honorário de <span class="num">${fmt.brl(c.honorario)}</span> não cobre o custo operacional`);
     if (c.num_atividades > avgAtiv * 1.5) insights.push(`Volume de atividades alto: <span class="num">${c.num_atividades}</span> contra média de <span class="num">${avgAtiv.toFixed(0)}</span>`);
-    if (cpa > avgCpa * 2 && c.num_atividades > 0) insights.push(`Custo por atividade muito elevado: <span class="num">${fmt.brl(cpa)}</span> (${(cpa / avgCpa).toFixed(1)}× a média)`);
+    if (cpa > avgCpa * 2 && c.num_atividades > 0) insights.push(`Custo por atividade muito elevado: <span class="num">${fmt.brl(cpa)}</span> (${fmt.mult(cpa / avgCpa)}× a média)`);
     insights.push(`Rank <span class="num">#${rankRes}</span> de pior resultado entre ${totalClients} clientes`);
     actions.push('Revisar urgentemente o contrato e a tabela de honorários');
     actions.push('Quantificar o esforço real da equipe e propor reajuste significativo');
@@ -1555,7 +1563,7 @@ function renderDiagnostic(c, all, ctx) {
     icon = '✅';
     title = 'Cliente saudável e rentável';
     summary = `Cliente com <strong>margem de ${fmt.pct(c.percentual)}</strong> — atinge ou supera o teto saudável de 32%. Resultado positivo de <strong style="color:var(--positive)">${fmt.brl(c.resultado)}</strong>. Honorário de ${fmt.brl(c.honorario)} cobre confortavelmente os custos de ${fmt.brl(c.total_custo)}.`;
-    if (avgPct > 0) insights.push(`Margem <strong>${(c.percentual / avgPct).toFixed(1)}×</strong> a média positiva da carteira (<span class="num">${fmt.pct(avgPct)}</span>)`);
+    if (avgPct > 0) insights.push(`Margem <strong>${fmt.mult(c.percentual / avgPct)}×</strong> a média positiva da carteira (<span class="num">${fmt.pct(avgPct)}</span>)`);
     if (c.total_custo < avgCusto) insights.push(`Custo abaixo da média: <span class="num">${fmt.brl(c.total_custo)}</span> vs <span class="num">${fmt.brl(avgCusto)}</span>`);
     insights.push(`Posição <span class="num">#${rankRes}</span> entre os melhores resultados`);
 
@@ -2494,7 +2502,7 @@ function renderComparativo() {
           pointBackgroundColor: summaries.map(s => s.margem_pct >= 0 ? C.positive : C.danger),
         }],
       },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.raw.toFixed(1)}%` } } }, scales: { y: { ticks: { callback: v => v.toFixed(1) + '%' }, grid: { color: C.border } }, x: { grid: { display: false } } } },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmt.pctNum(ctx.raw)}` } } }, scales: { y: { ticks: { callback: v => fmt.pctAxis(v) }, grid: { color: C.border } }, x: { grid: { display: false } } } },
     });
 
     mkChart('cmp-hon-extra', {
